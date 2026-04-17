@@ -1,56 +1,220 @@
 # Valeuray AI
 
-A native macOS chat client scaffold built with SwiftUI, SwiftData, async/await, and secure Keychain-backed API key storage.
+Valeuray AI is a native macOS desktop chat client for technical users who want a local-first interface for OpenAI, Anthropic, and Gemini without adding a backend of their own.
 
-## What is included
+The app is built with SwiftUI, SwiftData, async/await, and Keychain-backed secret storage. It is designed for private use, direct provider access, and local conversation history on the Mac.
 
-- Three-pane macOS layout with a grouped chat sidebar and dedicated settings scene
-- MVVM structure with persistent local conversations in SwiftData
-- Provider abstraction via `LLMService` plus modular OpenAI Responses API, Anthropic, and Gemini implementations
-- SSE parsing for streaming assistant responses into the UI in real time
-- Markdown-friendly assistant bubbles with fenced code block rendering and copy support
-- Per-conversation provider, model, and system-prompt overrides
-- Retry and stop controls for in-flight streamed responses
-- Searchable sidebar rows with provider badges and chat previews
-- Secure API key storage through the macOS Keychain
+## Audience
 
-## Project structure
+This project is aimed at:
 
-- [Package.swift](Package.swift)
-- [valeuray.xcodeproj](valeuray.xcodeproj)
-- [Sources](Sources)
+- developers
+- technical operators
+- power users who are comfortable supplying their own provider API keys
+- teams evaluating a private desktop client before investing in a hosted backend
 
-## Notes
+This is not a zero-setup consumer app. Users are expected to bring their own OpenAI, Anthropic, or Gemini API keys.
 
-- The recommended path now is to open [valeuray.xcodeproj](valeuray.xcodeproj) in Xcode and run the `Valeuray AI` scheme.
-- The Xcode app target uses bundle identifier `com.sehford.valeurayai.macosapp`, so you should no longer get the missing main bundle identifier warning from the package-based setup.
-- `Package.swift` is still there if you want to keep using SwiftPM builds alongside the app project.
+## Current Status
 
-## Release a Mac Download
+Valeuray AI is best described as a strong beta for private technical use.
 
-This repo now includes a DMG release script:
+What is already in place:
 
-- [script/release_dmg.sh](script/release_dmg.sh)
-- [Distribution/ExportOptions-DeveloperID.plist.template](Distribution/ExportOptions-DeveloperID.plist.template)
+- native macOS split-view chat interface
+- persistent local conversations
+- streaming responses over SSE
+- per-conversation provider and model selection
+- provider abstraction for OpenAI, Anthropic, and Gemini
+- attachment support for images and PDFs
+- personalization settings and memory document support
+- DMG and TestFlight-oriented packaging files
 
-This path is for direct downloads outside the App Store. It is not the right flow for TestFlight.
+What still needs work before a broader public release:
 
-### 1. Test the packaging flow locally
+- stronger automated test coverage
+- more migration and corruption recovery coverage
+- broader UX polish around failure handling and onboarding
+- more operational validation for release packaging and upgrade flows
+
+## Features
+
+- Three-pane macOS layout with sidebar, chat detail, and dedicated settings scene
+- Grouped conversation sidebar with search and provider badges
+- Streaming assistant replies with retry and stop controls
+- Markdown rendering with fenced code block copy support
+- Per-conversation system prompt overrides
+- Provider-specific model selection
+- Keychain-backed API key storage
+- Keychain-backed personalization and memory document storage
+- Local conversation persistence in SwiftData
+- Encrypted local storage for message text, conversation titles, per-conversation prompt overrides, and attachment blobs
+- Provider-side web search disabled by default and exposed as an explicit setting
+
+## Security Assessment
+
+### Summary
+
+For a private desktop client aimed at technical users, the security posture is good. For high-assurance, regulated, or adversarial environments, it is not complete enough to claim strong confidentiality guarantees end to end.
+
+### Current strengths
+
+- API keys are stored in the macOS Keychain, not in plaintext config files.
+- Personalization fields and memory-document content are also stored through Keychain-backed paths.
+- Local conversation data is encrypted before persistence, including:
+  - message content
+  - conversation titles
+  - per-conversation system prompt overrides
+  - stored attachment blobs
+- The app runs with App Sandbox enabled.
+- File access is limited to user-selected files.
+- Network access is client-only.
+- Provider-side web search is opt-in rather than always enabled.
+- Sensitive malformed-provider payloads are no longer logged verbatim.
+
+### Important limitations
+
+- This is not end-to-end encryption.
+  The app must decrypt data locally in order to display and send it.
+- Provider requests still send message content, prompts, and attachments to the selected upstream model provider over HTTPS.
+  OpenAI, Anthropic, or Google Gemini can only process data they receive in plaintext on their side.
+- If the local macOS account is fully compromised and the attacker has access to the user session and Keychain, local encryption at rest is not enough to protect the data.
+- The current automated test coverage is minimal, which means persistence migrations and provider parsing are not yet defended by a strong regression suite.
+
+### Practical conclusion
+
+This app is suitable for:
+
+- private local usage on a trusted Mac
+- direct provider access for technical users
+- teams comfortable with bring-your-own-key workflows
+
+This app is not yet positioned for:
+
+- regulated workloads
+- enterprise compliance claims
+- strong local-forensics resistance against a fully compromised logged-in system
+- consumer-facing privacy promises beyond local encryption at rest and standard HTTPS provider transport
+
+## Privacy Model
+
+Valeuray AI is local-first, but not local-only.
+
+Stored locally:
+
+- conversation history
+- conversation metadata
+- attachments added to chats
+- personalization settings
+- memory document content
+- selected provider and model preferences
+
+Sent to providers when you use them:
+
+- chat messages in the current conversation
+- per-conversation prompt overrides
+- global personalization content if it applies to the composed system prompt
+- attachments included in the request
+- optional provider-side web search directives if enabled in Settings
+
+Not included:
+
+- there is no hosted Valeuray AI backend in this repo
+- there is no built-in account system
+- there is no telemetry or analytics pipeline in the app code today
+
+## Architecture
+
+Core implementation areas:
+
+- [`Sources/LLMService.swift`](Sources/LLMService.swift): provider interface and service factory
+- [`Sources/ProviderServices.swift`](Sources/ProviderServices.swift): OpenAI, Anthropic, and Gemini request/stream handling
+- [`Sources/SSE.swift`](Sources/SSE.swift): SSE parsing and stream limits
+- [`Sources/Persistence.swift`](Sources/Persistence.swift): SwiftData repository and migration-on-read behavior
+- [`Sources/DatabaseEncryption.swift`](Sources/DatabaseEncryption.swift): local encryption helpers
+- [`Sources/SettingsStore.swift`](Sources/SettingsStore.swift): Keychain-backed settings and personalization
+- [`Sources/ChatWindowView.swift`](Sources/ChatWindowView.swift), [`Sources/ChatDetailView.swift`](Sources/ChatDetailView.swift), [`Sources/SidebarView.swift`](Sources/SidebarView.swift): main macOS UI surfaces
+
+## Repository Layout
+
+- [`Sources`](Sources): application source
+- [`Assets.xcassets`](Assets.xcassets): icons and brand assets
+- [`Distribution`](Distribution): export option templates and packaging assets
+- [`script`](script): local build and release helpers
+- [`valeuray.xcodeproj`](valeuray.xcodeproj): primary Xcode project
+- [`Package.swift`](Package.swift): SwiftPM package definition for package-based builds
+
+## Run Locally
+
+### Recommended: Xcode
+
+1. Open [`valeuray.xcodeproj`](valeuray.xcodeproj).
+2. Select the `Valeuray AI` scheme.
+3. Build and run the app on macOS.
+
+### SwiftPM
+
+`Package.swift` is still present for local package builds:
+
+```bash
+swift build
+swift run
+```
+
+If the local Swift module cache was created under a different path, use a clean build path:
+
+```bash
+swift build --build-path /tmp/valeurayAI-swift-build
+```
+
+## Configuration
+
+On first use, open Settings and add one or more provider API keys:
+
+- OpenAI
+- Anthropic
+- Google Gemini
+
+You can also configure:
+
+- default provider
+- model per provider
+- global system prompt
+- custom instructions
+- user name
+- optional memory document
+- optional provider-side web search
+
+## Attachments
+
+The current client supports:
+
+- images
+- PDFs
+
+Files are selected through the standard macOS file importer and then stored locally with the conversation history.
+
+## Build a Downloadable DMG
+
+The repo includes a DMG packaging script:
+
+- [`script/release_dmg.sh`](script/release_dmg.sh)
+- [`Distribution/ExportOptions-DeveloperID.plist.template`](Distribution/ExportOptions-DeveloperID.plist.template)
+
+### Local packaging test
 
 ```bash
 ./script/release_dmg.sh --local
 ```
 
-This builds a local Release app and wraps it in a DMG for testing only.
-
-### 2. Build a real downloadable Developer ID DMG
+### Developer ID export
 
 Requirements:
 
 - Apple Developer account
-- Xcode signed in with your developer account
-- A valid `Developer ID Application` certificate in Keychain Access
-- Your Apple Team ID
+- Xcode signed in with your team
+- valid `Developer ID Application` certificate
+- Apple Team ID
 
 Run:
 
@@ -58,64 +222,50 @@ Run:
 ./script/release_dmg.sh --team-id ABCDE12345
 ```
 
-That archives the app, exports it with the `developer-id` method, and creates a DMG in `dist/release/<timestamp>/`.
-
-### 3. Notarize the DMG
-
-Store your notary credentials once:
-
-```bash
-xcrun notarytool store-credentials "valeuray-ai-notary"
-```
-
-Then build and notarize in one step:
+### Notarize during packaging
 
 ```bash
 ./script/release_dmg.sh --team-id ABCDE12345 --notary-profile valeuray-ai-notary
 ```
 
-### 4. Publish
-
-Upload the notarized DMG from `dist/release/<timestamp>/` to your website or a GitHub release.
-
 ## Upload to TestFlight
 
-TestFlight for macOS uses the App Store Connect distribution flow, not the Developer ID DMG flow above.
+The project also includes App Store Connect export support:
 
-Requirements:
+- [`ValeurayAI.entitlements`](ValeurayAI.entitlements)
+- [`Distribution/ExportOptions-AppStoreConnect.plist.template`](Distribution/ExportOptions-AppStoreConnect.plist.template)
 
-- App Sandbox enabled on the app target
-- A valid App Store Connect-ready signing setup in Xcode for your team
-- A fresh archive built after the sandbox entitlement change
+Recommended flow:
 
-This repo now includes:
-
-- [ValeurayAI.entitlements](ValeurayAI.entitlements)
-- [Distribution/ExportOptions-AppStoreConnect.plist.template](Distribution/ExportOptions-AppStoreConnect.plist.template)
-
-Recommended path in Xcode:
-
-1. Open [valeuray.xcodeproj](valeuray.xcodeproj).
-2. Select `Any Mac` as the destination.
+1. Open [`valeuray.xcodeproj`](valeuray.xcodeproj).
+2. Select `Any Mac`.
 3. Run `Product > Archive`.
 4. In Organizer, choose `Distribute App`.
 5. Select `App Store Connect`, then `Upload`.
 
-Command-line archive example:
+## Known Limitations
 
-```bash
-  xcodebuild \
-  -project valeuray.xcodeproj \
-  -scheme "Valeuray AI" \
-  -configuration Release \
-  -destination "generic/platform=macOS" \
-  -archivePath dist/testflight/ValeurayAI.xcarchive \
-  -allowProvisioningUpdates \
-  archive
-```
+- The app depends on end-user provider keys.
+- There is no Valeuray AI backend in this repo.
+- Automated tests are currently light.
+- Conversation history is encrypted at rest locally, but the app is not end-to-end encrypted.
+- Upstream providers still receive the content needed to answer requests.
 
-If you export from the command line, use the App Store Connect template, not the Developer ID one.
+## Final Assessment
 
-## Ready-to-Use Note
+As it stands today, Valeuray AI is a credible private desktop client for technical users.
 
-The app package can be download-ready, but the current product still expects the user to add their own OpenAI, Anthropic, or Gemini API keys in Settings. If you want a true zero-setup consumer app, the next step is adding your own backend so the app does not depend on end-user API keys.
+The core product direction is sound:
+
+- native macOS UI
+- no required backend
+- direct provider access
+- local persistence
+- practical security improvements already in place
+
+The remaining work is mainly about robustness, not product fit:
+
+- better tests
+- more defensive migration coverage
+- more release validation
+- clearer user-facing privacy messaging as the app matures
