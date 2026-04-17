@@ -36,6 +36,7 @@ playground.xcworkspace
 # Local editor and agent state
 .vscode/
 .claude/
+.codex/
 .DS_Store
 
 # CocoaPods
@@ -71,3 +72,6 @@ fastlane/test_output
 # Generated analysis output
 dependency-graph.html
 dependency-graph.md
+
+# Local packaged output
+ValeurayAI 20*/
