@@ -32,11 +32,13 @@ playground.xcworkspace
 
 .build/
 .swiftpm/
+build/
 
 # Local editor and agent state
 .vscode/
 .claude/
 .codex/
+.code-review-graph/
 .DS_Store
 
 # CocoaPods
