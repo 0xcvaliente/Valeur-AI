@@ -1,23 +1,19 @@
+import AppKit
+import Combine
 import Foundation
 import SwiftUI
 
 struct ChatDetailView: View {
     @ObservedObject var viewModel: ChatViewModel
-    let isSidebarVisible: Bool
-    let onSidebarToggle: () -> Void
 
     var body: some View {
         ZStack {
             ChatSurfaceBackground()
 
             VStack(spacing: 0) {
-                topBar
-
                 if isHomeState {
                     WelcomeHomeView(
-                        provider: viewModel.selectedConversation?.provider ?? .openAI,
-                        tokenUsageFraction: viewModel.tokenUsageFraction,
-                        estimatedTokenCount: viewModel.estimatedTokenCount,
+                        viewModel: viewModel,
                         text: $viewModel.composerText,
                         draftAttachments: $viewModel.draftAttachments,
                         isSending: viewModel.isSending,
@@ -27,77 +23,68 @@ struct ChatDetailView: View {
                     conversationView
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 18)
-            .padding(.bottom, 22)
+            .padding(.horizontal, AppTheme.contentHorizontalPadding)
+            .padding(.bottom, AppTheme.contentBottomPadding)
         }
-    }
-
-    private var topBar: some View {
-        HStack {
-            Button(action: onSidebarToggle) {
-                Image(systemName: isSidebarVisible ? "sidebar.leading" : "sidebar.left")
-                    .font(AppTheme.uiFont(16, weight: .semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    .frame(width: 56, height: 52)
-                    .headerControlStyle()
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            if !isHomeState {
-                HStack(spacing: 10) {
-                    Button("Retry", action: viewModel.retryLastResponse)
-                        .disabled(viewModel.isSending || !viewModel.canRetry)
-
-                    Button(viewModel.isSending ? "Stop" : "Stopped", action: viewModel.cancelStreaming)
-                        .disabled(!viewModel.isSending)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(AppTheme.textPrimary)
-            }
-        }
-        .font(AppTheme.uiFont(14, weight: .medium))
-        .foregroundStyle(AppTheme.textPrimary)
     }
 
     private var conversationView: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: AppTheme.sectionSpacing) {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
-                    LazyVStack(alignment: .leading, spacing: 18) {
+                    LazyVStack(alignment: .leading, spacing: AppTheme.sectionSpacing) {
                         ForEach(sortedMessages) { message in
-                            MessageBubbleView(message: message)
-                                .id(message.id)
+                            VStack(alignment: .leading, spacing: 4) {
+                                MessageBubbleView(
+                                    message: message,
+                                    onEditUserMessage: { viewModel.editMessage(message) }
+                                )
+                                if message.id == sortedMessages.last?.id,
+                                   message.role == .assistant,
+                                   !viewModel.isSending,
+                                   let duration = viewModel.lastGenerationDuration {
+                                    HStack(spacing: 10) {
+                                        Text("Generated in \(String(format: "%.1f", duration))s")
+                                            .font(AppTheme.monoFont(11, weight: .medium))
+                                            .foregroundStyle(AppTheme.textSecondary.opacity(0.6))
+                                        Button("Retry", action: viewModel.retryLastResponse)
+                                            .disabled(!viewModel.canRetry)
+                                            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+                                            .font(AppTheme.uiFont(11, weight: .medium))
+                                    }
+                                    .padding(.leading, 4)
+                                }
+                            }
+                            .id(message.id)
                         }
-                        if viewModel.isSending, let status = viewModel.currentModelStatus {
-                            StatusBubbleView(status: status)
-                                .id("status_bubble")
+                        if viewModel.isSending {
+                            StatusBubbleView(
+                                status: viewModel.currentModelStatus,
+                                startTime: viewModel.generationStartTime ?? Date()
+                            )
+                            .id("status_bubble")
                         }
                     }
-                    .padding(.top, 24)
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, 12)
+                    .padding(.top, 20)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
                 }
-                .onChange(of: sortedMessages.map(\.id)) { _, ids in
-                    if let last = ids.last {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            proxy.scrollTo(last, anchor: .bottom)
-                        }
-                    }
+                .simultaneousGesture(TapGesture().onEnded {
+                    resignComposerFocus()
+                })
+                .onChange(of: scrollTrigger) { _, _ in
+                    scrollConversationToBottom(proxy)
                 }
             }
 
-            ComposerDockView(
+            ComposerView(
+                viewModel: viewModel,
                 text: $viewModel.composerText,
                 draftAttachments: $viewModel.draftAttachments,
                 isSending: viewModel.isSending,
-                tokenUsageFraction: viewModel.tokenUsageFraction,
-                estimatedTokenCount: viewModel.estimatedTokenCount,
                 onSubmit: viewModel.sendCurrentMessage
             )
-            .frame(maxWidth: 1020)
+            .frame(maxWidth: 960)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -109,33 +96,83 @@ struct ChatDetailView: View {
     private var isHomeState: Bool {
         (viewModel.selectedConversation?.messages.isEmpty ?? true) && !viewModel.isSending
     }
+
+    private var scrollTrigger: String {
+        let lastMessage = sortedMessages.last
+        return [
+            lastMessage?.id.uuidString ?? "none",
+            String(lastMessage?.decryptedContent.count ?? 0),
+            viewModel.isSending ? "1" : "0",
+            viewModel.currentModelStatus ?? ""
+        ]
+        .joined(separator: "|")
+    }
+
+    private func scrollConversationToBottom(_ proxy: ScrollViewProxy) {
+        if let last = sortedMessages.last?.id {
+            withAnimation(.easeOut(duration: 0.18)) {
+                proxy.scrollTo(last, anchor: .bottom)
+            }
+            return
+        }
+
+        if viewModel.isSending {
+            withAnimation(.easeOut(duration: 0.18)) {
+                proxy.scrollTo("status_bubble", anchor: .bottom)
+            }
+        }
+    }
+
+    private func resignComposerFocus() {
+        NSApp.keyWindow?.makeFirstResponder(nil)
+    }
 }
 
 struct StatusBubbleView: View {
-    let status: String
+    let status: String?
+    let startTime: Date
     @State private var isAnimating = false
+    @State private var elapsed: TimeInterval = 0
+
+    private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Image(systemName: "sparkles")
-                .font(AppTheme.uiFont(14, weight: .medium))
-                .foregroundStyle(AppTheme.textSecondary)
+                .font(AppTheme.uiFont(13, weight: .medium))
+                .foregroundStyle(AppTheme.orange500)
                 .rotationEffect(.degrees(isAnimating ? 15 : -15))
                 .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isAnimating)
 
-            Text(status)
-                .font(AppTheme.uiFont(14, weight: .medium))
+            Text(displayStatus)
+                .font(AppTheme.uiFont(13, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .contentTransition(.numericText())
                 .animation(.snappy, value: status)
-            
+
+            Text(elapsedLabel)
+                .font(AppTheme.monoFont(12, weight: .medium))
+                .foregroundStyle(AppTheme.textSecondary.opacity(0.7))
+                .contentTransition(.numericText())
+                .animation(.linear(duration: 0.1), value: elapsed)
+
             Spacer()
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .onAppear {
-            isAnimating = true
+        .padding(.vertical, 12)
+        .onAppear { isAnimating = true }
+        .onReceive(ticker) { _ in
+            elapsed = Date().timeIntervalSince(startTime)
         }
+    }
+
+    private var displayStatus: String {
+        if let status { return status }
+        return elapsed < 3 ? "Thinking..." : "Gathering data..."
+    }
+
+    private var elapsedLabel: String {
+        String(format: "%.1fs", elapsed)
     }
 }
 
@@ -144,28 +181,60 @@ struct LLMSelectorMenu: View {
     @ObservedObject var settingsStore: SettingsStore
 
     var body: some View {
-        if let conversation = viewModel.selectedConversation {
-            Menu {
+        let currentProvider = viewModel.selectedConversation?.provider ?? settingsStore.defaultProvider
+        let currentModelIdentifier = viewModel.selectedConversation?.modelIdentifier ?? settingsStore.selectedModel(for: currentProvider)
+        let selectProvider: (LLMProvider) -> Void = { provider in
+            if viewModel.selectedConversation != nil {
+                viewModel.updateProvider(provider)
+            } else {
+                settingsStore.defaultProvider = provider
+            }
+        }
+        let selectModel: (String) -> Void = { modelIdentifier in
+            if viewModel.selectedConversation != nil {
+                viewModel.updateModel(modelIdentifier)
+            } else {
+                settingsStore.selectedModel = modelIdentifier
+            }
+        }
+
+        Menu {
+            Section("Providers") {
                 ForEach(LLMProvider.allCases) { provider in
                     Button {
-                        viewModel.updateProvider(provider)
+                        selectProvider(provider)
                     } label: {
                         ProviderSelectorMenuRow(
                             provider: provider,
                             modelIdentifier: settingsStore.selectedModel(for: provider),
-                            isSelected: provider == conversation.provider
+                            isSelected: provider == currentProvider
                         )
                     }
                 }
-            } label: {
-                LLMSelectorButton(
-                    provider: conversation.provider,
-                    modelIdentifier: conversation.modelIdentifier
-                )
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+
+            Divider()
+
+            Section("\(currentProvider.displayName) Models") {
+                ForEach(currentProvider.presets) { preset in
+                    Button {
+                        selectModel(preset.modelIdentifier)
+                    } label: {
+                        ModelSelectorMenuRow(
+                            preset: preset,
+                            isSelected: currentProvider.normalizedModelIdentifier(currentModelIdentifier) == preset.modelIdentifier
+                        )
+                    }
+                }
+            }
+        } label: {
+            LLMSelectorButton(
+                provider: currentProvider,
+                modelIdentifier: currentModelIdentifier
+            )
         }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 }
 
@@ -207,11 +276,6 @@ private struct HeaderControlStyleModifier: ViewModifier {
                 RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
                     .fill(AppTheme.surfacePrimary)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                    .strokeBorder(AppTheme.border, lineWidth: 1)
-            }
-            .shadow(color: Color.black.opacity(0.04), radius: 8, y: 2)
     }
 }
 
@@ -234,6 +298,44 @@ struct ProviderSelectorMenuRow: View {
                 Text(provider.normalizedModelIdentifier(modelIdentifier))
                     .font(AppTheme.uiFont(13, weight: .medium))
                     .foregroundStyle(.secondary)
+                Text("Version \(provider.versionLabel(for: modelIdentifier))")
+                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("Context \(TokenFormatting.windowLabel(provider.contextWindowTokens(for: modelIdentifier)))")
+                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 16)
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(AppTheme.uiFont(15, weight: .bold))
+            }
+        }
+        .frame(minWidth: 260, alignment: .leading)
+        .padding(.vertical, 6)
+    }
+}
+
+struct ModelSelectorMenuRow: View {
+    let preset: LLMModelPreset
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(preset.title)
+                    .font(AppTheme.headingFont(15, weight: .semibold))
+                Text("Version \(preset.versionLabel)")
+                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text(preset.subtitle)
+                    .font(AppTheme.uiFont(13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("Context \(preset.contextWindowLabel)")
+                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 16)
@@ -250,9 +352,7 @@ struct ProviderSelectorMenuRow: View {
 
 struct WelcomeHomeView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
-    let provider: LLMProvider
-    let tokenUsageFraction: Double
-    let estimatedTokenCount: Int
+    @ObservedObject var viewModel: ChatViewModel
     @Binding var text: String
     @Binding var draftAttachments: [URL]
     let isSending: Bool
@@ -262,29 +362,27 @@ struct WelcomeHomeView: View {
         VStack(spacing: 28) {
             Spacer(minLength: 20)
 
-            VStack(spacing: 22) {
-                RotatingEarthView()
+            HStack(alignment: .center, spacing: 18) {
+                ValeurLogoMark(size: 52)
 
-                VStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(greetingTitle)
-                    .font(AppTheme.headingFont(34, weight: .semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
-                    Text("Can I help you with anything ?")
+                        .font(AppTheme.headingFont(34, weight: .semibold))
+                        .foregroundStyle(AppTheme.textPrimary)
+                    Text("Can I help you with anything?")
                         .font(AppTheme.headingFont(34, weight: .medium))
                         .foregroundStyle(AppTheme.textPrimary)
                 }
-                .multilineTextAlignment(.center)
             }
 
-            ComposerDockView(
+            ComposerView(
+                viewModel: viewModel,
                 text: $text,
                 draftAttachments: $draftAttachments,
                 isSending: isSending,
-                tokenUsageFraction: tokenUsageFraction,
-                estimatedTokenCount: estimatedTokenCount,
                 onSubmit: onSubmit
             )
-            .frame(maxWidth: 1040)
+            .frame(maxWidth: 980)
 
             Spacer()
         }
@@ -293,44 +391,26 @@ struct WelcomeHomeView: View {
 
     private var greetingTitle: String {
         let trimmedName = settingsStore.userName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedName.isEmpty {
-            return "Good Evening."
+        let hour = Calendar.current.component(.hour, from: Date())
+        let period: String
+        switch hour {
+        case 5..<12: period = "Good Morning"
+        case 12..<17: period = "Good Afternoon"
+        case 17..<21: period = "Good Evening"
+        default: period = "Good Night"
         }
-        return "Good Evening, \(trimmedName)."
+        return trimmedName.isEmpty ? "\(period)." : "\(period), \(trimmedName)."
     }
 }
 
-struct ComposerDockView: View {
-    @Binding var text: String
-    @Binding var draftAttachments: [URL]
-    let isSending: Bool
-    let tokenUsageFraction: Double
-    let estimatedTokenCount: Int
-    let onSubmit: () -> Void
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 18) {
-            ComposerView(
-                text: $text,
-                draftAttachments: $draftAttachments,
-                isSending: isSending,
-                onSubmit: onSubmit
-            )
-
-            TokenUsageRingView(
-                usageFraction: tokenUsageFraction,
-                estimatedTokenCount: estimatedTokenCount
-            )
-            .padding(.bottom, 8)
-        }
-    }
-}
 
 struct TokenUsageRingView: View {
     let usageFraction: Double
-    let estimatedTokenCount: Int
+    let inputTokenCount: Int
+    let outputTokenCount: Int
+    let totalTokenCount: Int
 
-    private let size: CGFloat = 92
+    private let size: CGFloat = 96
 
     var body: some View {
         VStack(spacing: 8) {
@@ -342,11 +422,7 @@ struct TokenUsageRingView: View {
                     .trim(from: 0, to: max(usageFraction, 0.01))
                     .stroke(
                         AngularGradient(
-                            colors: [
-                                Color(red: 105.0 / 255.0, green: 45.0 / 255.0, blue: 230.0 / 255.0),
-                                Color(red: 191.0 / 255.0, green: 54.0 / 255.0, blue: 201.0 / 255.0),
-                                Color(red: 105.0 / 255.0, green: 45.0 / 255.0, blue: 230.0 / 255.0)
-                            ],
+                            colors: [AppTheme.orange600, AppTheme.orange500, AppTheme.orange600],
                             center: .center
                         ),
                         style: StrokeStyle(lineWidth: 10, lineCap: .round)
@@ -354,7 +430,7 @@ struct TokenUsageRingView: View {
                     .rotationEffect(.degrees(-90))
 
                 VStack(spacing: 1) {
-                    Text("\(Int((usageFraction * 100).rounded()))%")
+                    Text(TokenFormatting.percentLabel(for: usageFraction))
                         .font(AppTheme.headingFont(17, weight: .semibold))
                         .foregroundStyle(AppTheme.textPrimary)
                     Text("usage")
@@ -364,18 +440,25 @@ struct TokenUsageRingView: View {
             }
             .frame(width: size, height: size)
 
-            Text(tokenLabel)
-                .font(AppTheme.monoFont(11, weight: .medium))
-                .foregroundStyle(AppTheme.textSecondary)
+            VStack(spacing: 2) {
+                Text(usageLabel)
+                    .font(AppTheme.monoFont(11, weight: .medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+
+                Text(splitLabel)
+                    .font(AppTheme.uiFont(9, weight: .medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
         }
-        .frame(width: 108)
+        .frame(width: 120)
     }
 
-    private var tokenLabel: String {
-        if estimatedTokenCount >= 1_000 {
-            return String(format: "%.1fK / 1M", Double(estimatedTokenCount) / 1_000.0)
-        }
-        return "\(estimatedTokenCount) / 1M"
+    private var usageLabel: String {
+        "Used \(TokenFormatting.windowLabel(totalTokenCount))"
+    }
+
+    private var splitLabel: String {
+        "In \(TokenFormatting.compactCount(inputTokenCount))  Out \(TokenFormatting.compactCount(outputTokenCount))"
     }
 }
 
@@ -385,7 +468,7 @@ struct RotatingEarthView: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(AppTheme.blue500.opacity(0.12))
+                .fill(AppTheme.orange500.opacity(0.10))
                 .blur(radius: 34)
                 .frame(width: 164, height: 164)
 
@@ -393,8 +476,8 @@ struct RotatingEarthView: View {
                 .fill(
                     RadialGradient(
                         colors: [
-                            AppTheme.navy700,
-                            AppTheme.navy900
+                            AppTheme.orange600,
+                            AppTheme.orange700
                         ],
                         center: .topLeading,
                         startRadius: 8,
@@ -407,16 +490,7 @@ struct RotatingEarthView: View {
                         .rotationEffect(.degrees(rotation))
                         .clipShape(Circle())
                 }
-                .overlay {
-                    Circle()
-                        .strokeBorder(AppTheme.borderStrong, lineWidth: 1)
-                }
-                .overlay {
-                    Circle()
-                        .strokeBorder(AppTheme.blue500.opacity(0.22), lineWidth: 8)
-                        .blur(radius: 8)
-                }
-                .shadow(color: AppTheme.blue500.opacity(0.38), radius: 42)
+                .shadow(color: AppTheme.orange500.opacity(0.28), radius: 42)
                 .onAppear {
                     withAnimation(.linear(duration: 14).repeatForever(autoreverses: false)) {
                         rotation = 360
@@ -433,10 +507,10 @@ struct EarthSurface: View {
                 .fill(
                     AngularGradient(
                         colors: [
-                            AppTheme.blue500,
-                            AppTheme.navy700,
-                            AppTheme.navy900,
-                            AppTheme.blue500
+                            AppTheme.orange500,
+                            AppTheme.orange600,
+                            AppTheme.orange700,
+                            AppTheme.orange500
                         ],
                         center: .center
                     )
@@ -446,19 +520,19 @@ struct EarthSurface: View {
                 .stroke(AppTheme.borderStrong.opacity(0.7), lineWidth: 0.8)
 
             EarthContinentShape()
-                .fill(AppTheme.ice100.opacity(0.92))
+                .fill(Color.white.opacity(0.90))
                 .blur(radius: 0.4)
                 .offset(x: -10, y: -2)
 
             EarthContinentShape()
-                .fill(AppTheme.ice100.opacity(0.62))
+                .fill(Color.white.opacity(0.60))
                 .scaleEffect(x: 0.62, y: 0.52)
                 .offset(x: 24, y: 18)
 
             Circle()
                 .fill(
                     LinearGradient(
-                        colors: [AppTheme.ice100.opacity(0.30), Color.clear],
+                        colors: [Color.white.opacity(0.28), Color.clear],
                         startPoint: .topLeading,
                         endPoint: .center
                     )

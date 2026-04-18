@@ -1,16 +1,57 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct ComposerView: View {
+    @ObservedObject var viewModel: ChatViewModel
+    @EnvironmentObject private var settingsStore: SettingsStore
     @Binding var text: String
     @Binding var draftAttachments: [URL]
     let isSending: Bool
     let onSubmit: () -> Void
     @State private var isImportingAttachment = false
+    @State private var attachmentImportKind: AttachmentImportKind = .photos
+    @State private var textViewHeight: CGFloat = 38
+    @State private var placeholderIndex = 0
+    private let compactTextInset: CGFloat = 8
+    private let placeholderRotationTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
+    private let placeholderPrompts: [String] = [
+        "Ask me to summarize this conversation.",
+        "Try: explain this like I am new to it.",
+        "Write a draft reply, then make it shorter.",
+        "Ask for code, notes, or a checklist.",
+        "Tell me what to look for in this document."
+    ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        composerInputBox
+            .onAppear {
+                clearComposerFocus()
+            }
+            .onReceive(placeholderRotationTimer) { _ in
+                guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    placeholderIndex = (placeholderIndex + 1) % placeholderPrompts.count
+                }
+            }
+            .fileImporter(
+                isPresented: $isImportingAttachment,
+                allowedContentTypes: attachmentImportKind.allowedContentTypes,
+                allowsMultipleSelection: true
+            ) { result in
+                if let urls = try? result.get() {
+                    for url in urls {
+                        if url.startAccessingSecurityScopedResource() {
+                            draftAttachments.append(url)
+                        }
+                    }
+                }
+            }
+    }
+
+    private var composerInputBox: some View {
+        VStack(alignment: .leading, spacing: 0) {
             if !draftAttachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -26,9 +67,8 @@ struct ComposerView: View {
                                     RoundedRectangle(cornerRadius: AppTheme.radius)
                                         .fill(AppTheme.surfaceSecondary)
                                         .frame(width: 56, height: 56)
-                                        .overlay(Text(url.pathExtension.uppercased()).font(.caption))
+                                        .overlay(Text(url.pathExtension.uppercased()).font(AppTheme.uiFont(11, weight: .medium)))
                                 }
-                                
                                 Button {
                                     draftAttachments.removeAll { $0 == url }
                                 } label: {
@@ -44,74 +84,343 @@ struct ComposerView: View {
                     .padding(.horizontal, 4)
                 }
                 .frame(height: 64)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
             }
-            
+
             ZStack(alignment: .topLeading) {
-                GrowingTextView(text: $text, onSubmit: onSubmit)
-                    .frame(minHeight: 74, maxHeight: 116)
+                GrowingTextView(
+                    text: $text,
+                    measuredHeight: $textViewHeight,
+                    minHeight: 38,
+                    maxHeight: 120,
+                    verticalInset: compactTextInset,
+                    onSubmit: onSubmit
+                )
+                .frame(height: textViewHeight)
 
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Message AI Chat...")
+                    Text(placeholderPrompts[placeholderIndex])
                         .font(AppTheme.uiFont(16, weight: .medium))
                         .foregroundStyle(AppTheme.textSecondary)
-                        .padding(.top, 12)
+                        .padding(.top, compactTextInset + 1)
                         .padding(.leading, 16)
+                        .padding(.trailing, 12)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .transition(.opacity)
+                        .id(placeholderIndex)
                         .allowsHitTesting(false)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
 
-            HStack(spacing: 12) {
-                Button {
-                    isImportingAttachment = true
+            HStack(spacing: 6) {
+                Menu {
+                    Button {
+                        presentAttachmentImporter(.photos)
+                    } label: {
+                        Label("Add Photos", systemImage: "photo.on.rectangle.angled")
+                    }
+
+                    Button {
+                        presentAttachmentImporter(.files)
+                    } label: {
+                        Label("Add Files", systemImage: "folder")
+                    }
                 } label: {
-                    ComposerAccessoryButton(icon: "paperclip")
+                    ComposerCircleButton(icon: "plus")
+                }
+                .menuStyle(.borderlessButton)
+
+                Button { settingsStore.webSearchEnabled.toggle() } label: {
+                    ComposerChipButton(
+                        icon: "globe",
+                        label: settingsStore.webSearchEnabled ? "Web Enabled" : "Web",
+                        isActive: settingsStore.webSearchEnabled
+                    )
                 }
                 .buttonStyle(.plain)
+
+                TokenContextBadge(
+                    usageFraction: viewModel.tokenUsageFraction,
+                    inputTokenCount: viewModel.inputTokenCount,
+                    outputTokenCount: viewModel.outputTokenCount,
+                    totalTokenCount: viewModel.estimatedTokenCount,
+                    contextTokenLimit: viewModel.contextTokenLimit
+                )
+
+                Button {
+                    startDictation()
+                } label: {
+                    ComposerCircleButton(icon: "mic.fill")
+                }
+                .buttonStyle(.plain)
+
+                personalitySelector
+
+                llmSelector
 
                 Spacer()
 
-                Button(action: onSubmit) {
-                    Image(systemName: isSending ? "stop.fill" : "arrow.up")
-                        .font(AppTheme.uiFont(16, weight: .bold))
-                        .foregroundStyle(AppTheme.textPrimary)
-                        .frame(width: 42, height: 42)
-                        .background(
-                            LinearGradient(
-                                colors: [AppTheme.navy700, AppTheme.blue500],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+                Button {
+                    if isSending {
+                        viewModel.cancelStreaming()
+                    } else {
+                        onSubmit()
+                    }
+                } label: {
+                    ComposerCircleButton(
+                        icon: isSending ? "stop.fill" : "arrow.up",
+                        isProminent: canSend || isSending,
+                        iconForegroundColor: canSend || isSending ? .white : AppTheme.textSecondary
+                    )
                 }
                 .buttonStyle(.plain)
-                .disabled((text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draftAttachments.isEmpty) || isSending)
+                .disabled(!canSend && !isSending)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
         }
-        .padding(16)
-        .background(AppTheme.surfacePrimary)
-        .overlay {
+        .frame(maxWidth: .infinity)
+        .background {
             RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                .strokeBorder(AppTheme.border, lineWidth: 1)
+                .fill(AppTheme.surfacePrimary)
         }
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
-        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 3)
-        .fileImporter(
-            isPresented: $isImportingAttachment,
-            allowedContentTypes: [.image, .pdf],
-            allowsMultipleSelection: true
-        ) { result in
-            if let urls = try? result.get() {
-                for url in urls {
-                    let accessed = url.startAccessingSecurityScopedResource()
-                    if accessed {
-                        draftAttachments.append(url)
+    }
+
+    private var canSend: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftAttachments.isEmpty
+    }
+
+    private func presentAttachmentImporter(_ kind: AttachmentImportKind) {
+        attachmentImportKind = kind
+        isImportingAttachment = true
+    }
+
+    private func startDictation() {
+        NSApp.sendAction(Selector(("startDictation:")), to: nil, from: nil)
+    }
+
+    private func clearComposerFocus() {
+        DispatchQueue.main.async {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
+    }
+
+    private var personalitySelector: some View {
+        Menu {
+            ForEach(ChatTone.allCases) { tone in
+                Button {
+                    settingsStore.chatTone = tone
+                } label: {
+                    HStack {
+                        Label(tone.title, systemImage: tone.icon)
+                        if settingsStore.chatTone == tone {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
                     }
                 }
             }
+        } label: {
+            ComposerChipButton(
+                icon: settingsStore.chatTone.icon,
+                label: settingsStore.chatTone.title,
+                isActive: settingsStore.chatTone != .balanced
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var llmSelector: some View {
+        LLMSelectorMenu(viewModel: viewModel, settingsStore: settingsStore)
+    }
+
+}
+
+private struct TokenContextBadge: View {
+    let usageFraction: Double
+    let inputTokenCount: Int
+    let outputTokenCount: Int
+    let totalTokenCount: Int
+    let contextTokenLimit: Int
+    @State private var isHovered = false
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            ZStack {
+                Circle()
+                    .stroke(AppTheme.textSecondary.opacity(0.15), lineWidth: 4)
+
+                Circle()
+                    .trim(from: 0, to: max(usageFraction, 0.01))
+                    .stroke(
+                        AngularGradient(
+                            colors: [AppTheme.orange600, AppTheme.orange500, AppTheme.orange600],
+                            center: .center
+                        ),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 30, height: 30)
+
+            if isHovered {
+                TokenContextTooltip(
+                    usageFraction: usageFraction,
+                    inputTokenCount: inputTokenCount,
+                    outputTokenCount: outputTokenCount,
+                    totalTokenCount: totalTokenCount,
+                    contextTokenLimit: contextTokenLimit
+                )
+                .offset(y: -42)
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
+                .zIndex(1)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.14), value: isHovered)
+    }
+
+    private var tokenHelpText: String {
+        "Context \(TokenFormatting.windowLabel(totalTokenCount)) / \(TokenFormatting.windowLabel(contextTokenLimit)) · \(TokenFormatting.percentLabel(for: usageFraction))\nIn \(TokenFormatting.compactCount(inputTokenCount))  Out \(TokenFormatting.compactCount(outputTokenCount))"
+    }
+}
+
+private struct TokenContextTooltip: View {
+    let usageFraction: Double
+    let inputTokenCount: Int
+    let outputTokenCount: Int
+    let totalTokenCount: Int
+    let contextTokenLimit: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("\(TokenFormatting.percentLabel(for: usageFraction)) used (\(TokenFormatting.percentLabel(for: max(1 - usageFraction, 0))) left)")
+            Text("\(TokenFormatting.compactCount(totalTokenCount)) / \(TokenFormatting.compactCount(contextTokenLimit)) tokens used")
+            Text("Total usage \(TokenFormatting.compactCount(totalTokenCount))")
+            Text("In \(TokenFormatting.compactCount(inputTokenCount))  Out \(TokenFormatting.compactCount(outputTokenCount))")
+        }
+        .font(AppTheme.uiFont(11, weight: .medium))
+        .foregroundStyle(AppTheme.textPrimary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppTheme.surfacePrimary.opacity(0.98))
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(AppTheme.textSecondary.opacity(0.10), lineWidth: 1)
+        )
+        .fixedSize()
+        .allowsHitTesting(false)
+    }
+}
+
+private enum AttachmentImportKind {
+    case photos
+    case files
+
+    var allowedContentTypes: [UTType] {
+        switch self {
+        case .photos:
+            return [.image]
+        case .files:
+            return [.item]
         }
     }
 }
+
+// MARK: - Chip button
+
+struct ComposerChipButton: View {
+    let icon: String
+    let label: String?
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(AppTheme.uiFont(12, weight: .semibold))
+            if let label {
+                Text(label)
+                    .font(AppTheme.uiFont(12, weight: .semibold))
+            }
+        }
+        .foregroundStyle(isActive ? AppTheme.orange500 : AppTheme.textSecondary)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(
+            isActive
+                ? AppTheme.orange500.opacity(0.10)
+                : AppTheme.surfaceSecondary
+        )
+        .clipShape(Capsule())
+    }
+}
+
+struct ComposerCircleButton: View {
+    let icon: String
+    var isProminent: Bool = false
+    var iconForegroundColor: Color?
+
+    var body: some View {
+        let activeForeground = iconForegroundColor ?? (isProminent ? Color.white : AppTheme.textSecondary)
+
+        ZStack {
+            Circle()
+                .fill(
+                    isProminent
+                        ? AnyShapeStyle(LinearGradient(
+                            colors: [AppTheme.orange600, AppTheme.orange500],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                        : AnyShapeStyle(AppTheme.surfaceSecondary)
+                )
+
+            Image(systemName: icon)
+                .font(AppTheme.uiFont(13, weight: .bold))
+                .foregroundStyle(activeForeground)
+        }
+        .frame(width: 34, height: 34)
+    }
+}
+
+struct InlineLLMSelectorButton: View {
+    let provider: LLMProvider
+    let modelIdentifier: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "cpu")
+                .font(AppTheme.uiFont(12, weight: .semibold))
+            Text(provider.selectorTitle)
+                .font(AppTheme.uiFont(12, weight: .semibold))
+                .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+                .font(AppTheme.uiFont(10, weight: .bold))
+                .foregroundStyle(AppTheme.textSecondary)
+        }
+        .foregroundStyle(AppTheme.textPrimary)
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(AppTheme.surfaceSecondary)
+        .clipShape(Capsule())
+        .help("Current model: \(provider.normalizedModelIdentifier(modelIdentifier))")
+    }
+}
+
+// MARK: - Accessory button (kept for any remaining usages)
 
 struct ComposerAccessoryButton: View {
     let icon: String
@@ -120,22 +429,31 @@ struct ComposerAccessoryButton: View {
         Image(systemName: icon)
             .font(AppTheme.uiFont(15, weight: .semibold))
             .foregroundStyle(AppTheme.textPrimary)
-            .frame(width: 42, height: 42)
+            .frame(width: 36, height: 36)
             .background(AppTheme.surfaceSecondary)
-            .overlay {
-                RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                    .strokeBorder(AppTheme.border, lineWidth: 1)
-            }
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
     }
 }
 
+// MARK: - GrowingTextView
+
 struct GrowingTextView: NSViewRepresentable {
     @Binding var text: String
+    @Binding var measuredHeight: CGFloat
+    let minHeight: CGFloat
+    let maxHeight: CGFloat
+    let verticalInset: CGFloat
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onSubmit: onSubmit)
+        Coordinator(
+            text: $text,
+            measuredHeight: $measuredHeight,
+            minHeight: minHeight,
+            maxHeight: maxHeight,
+            verticalInset: verticalInset,
+            onSubmit: onSubmit
+        )
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -152,10 +470,13 @@ struct GrowingTextView: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.submitHandler = onSubmit
-        textView.textContainerInset = NSSize(width: 10, height: 8)
+        if #available(macOS 15.0, *) {
+            textView.writingToolsBehavior = .none
+        }
+        textView.textContainerInset = NSSize(width: 10, height: verticalInset)
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.minSize = NSSize(width: 0, height: 60)
+        textView.minSize = NSSize(width: 0, height: minHeight)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
 
@@ -164,6 +485,7 @@ struct GrowingTextView: NSViewRepresentable {
         scrollView.hasVerticalScroller = false
         scrollView.drawsBackground = false
         scrollView.documentView = textView
+        context.coordinator.recalculateHeight(for: textView)
         return scrollView
     }
 
@@ -176,20 +498,59 @@ struct GrowingTextView: NSViewRepresentable {
         textView.textColor = NSColor(AppTheme.textPrimary)
         textView.insertionPointColor = NSColor(AppTheme.textPrimary)
         textView.submitHandler = onSubmit
+        textView.textContainerInset = NSSize(width: 10, height: verticalInset)
+        context.coordinator.recalculateHeight(for: textView)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding var text: String
+        @Binding var measuredHeight: CGFloat
+        let minHeight: CGFloat
+        let maxHeight: CGFloat
+        let verticalInset: CGFloat
         let onSubmit: () -> Void
 
-        init(text: Binding<String>, onSubmit: @escaping () -> Void) {
+        init(
+            text: Binding<String>,
+            measuredHeight: Binding<CGFloat>,
+            minHeight: CGFloat,
+            maxHeight: CGFloat,
+            verticalInset: CGFloat,
+            onSubmit: @escaping () -> Void
+        ) {
             self._text = text
+            self._measuredHeight = measuredHeight
+            self.minHeight = minHeight
+            self.maxHeight = maxHeight
+            self.verticalInset = verticalInset
             self.onSubmit = onSubmit
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
+            recalculateHeight(for: textView)
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            recalculateHeight(for: textView)
+        }
+
+        func recalculateHeight(for textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+
+            layoutManager.ensureLayout(for: textContainer)
+            let usedHeight = layoutManager.usedRect(for: textContainer).height
+            let verticalInset = textView.textContainerInset.height * 2
+            let resolvedHeight = min(max(ceil(usedHeight + verticalInset), minHeight), maxHeight)
+
+            if abs(measuredHeight - resolvedHeight) > 0.5 {
+                DispatchQueue.main.async {
+                    self.measuredHeight = resolvedHeight
+                }
+            }
         }
     }
 }

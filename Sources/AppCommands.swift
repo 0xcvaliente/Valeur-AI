@@ -8,10 +8,18 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("n")
         }
+
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                NotificationCenter.default.post(name: .openSettingsRequested, object: nil)
+            }
+            .keyboardShortcut(",")
+        }
     }
 }
 
 extension Notification.Name {
     static let newChatRequested = Notification.Name("newChatRequested")
     static let deleteAllConversationsRequested = Notification.Name("deleteAllConversationsRequested")
+    static let openSettingsRequested = Notification.Name("openSettingsRequested")
 }

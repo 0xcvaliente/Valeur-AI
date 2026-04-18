@@ -33,6 +33,8 @@ final class ChatViewModel: ObservableObject {
     @Published var isSending = false
     @Published var errorMessage: String?
     @Published var currentModelStatus: String?
+    @Published var generationStartTime: Date?
+    @Published var lastGenerationDuration: TimeInterval?
 
     private let appState: AppState
     private let repository: ConversationRepository
@@ -157,6 +159,15 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    func renameConversation(_ conversation: ConversationRecord, title: String) {
+        do {
+            try repository.renameConversation(conversation, title: title)
+            load()
+        } catch {
+            errorMessage = displayMessage(for: error)
+        }
+    }
+
     func updateSystemPrompt(_ prompt: String) {
         guard let conversation = selectedConversation else { return }
         do {
@@ -167,22 +178,61 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    func editMessage(_ message: MessageRecord) {
+        guard message.role == .user else { return }
+        composerText = message.decryptedContent
+    }
+
     var canRetry: Bool {
         guard let selectedConversation else { return false }
         return selectedConversation.messages.contains(where: { $0.role == .assistant })
     }
 
+    var contextTokenLimit: Int {
+        if let conversation = selectedConversation {
+            return max(
+                appState.settingsStore.contextWindowTokens(
+                    for: conversation.provider,
+                    modelIdentifier: conversation.modelIdentifier
+                ),
+                1
+            )
+        }
+
+        return max(appState.settingsStore.contextTokenLimit, 1)
+    }
+
+    var inputTokenCount: Int {
+        let draftTokenCount = TokenFormatting.estimatedTokenCount(for: composerText)
+        return (selectedConversation?.persistedInputTokenCount ?? 0) + draftTokenCount
+    }
+
+    var outputTokenCount: Int {
+        selectedConversation?.persistedOutputTokenCount ?? 0
+    }
+
     var estimatedTokenCount: Int {
-        let conversationTextCount = selectedConversation?.messages.reduce(into: 0) { total, message in
-            total += message.decryptedContent.count
-        } ?? 0
-        let draftCount = composerText.count
-        let totalCharacters = conversationTextCount + draftCount
-        return max(Int(ceil(Double(totalCharacters) / 4.0)), 0)
+        inputTokenCount + outputTokenCount
     }
 
     var tokenUsageFraction: Double {
-        min(Double(estimatedTokenCount) / 1_000_000.0, 1.0)
+        min(Double(estimatedTokenCount) / Double(contextTokenLimit), 1.0)
+    }
+
+    var savedInputTokenCountAcrossChats: Int {
+        conversations.reduce(into: 0) { total, conversation in
+            total += conversation.persistedInputTokenCount
+        }
+    }
+
+    var savedOutputTokenCountAcrossChats: Int {
+        conversations.reduce(into: 0) { total, conversation in
+            total += conversation.persistedOutputTokenCount
+        }
+    }
+
+    var savedTotalTokenCountAcrossChats: Int {
+        savedInputTokenCountAcrossChats + savedOutputTokenCountAcrossChats
     }
 
     private func sendMessage(_ content: String, attachments: [URL]) async {
@@ -206,6 +256,8 @@ final class ChatViewModel: ObservableObject {
         isSending = true
         errorMessage = nil
         currentModelStatus = nil
+        generationStartTime = Date()
+        lastGenerationDuration = nil
 
         do {
             var msgAttachments: [MessageAttachment] = []
@@ -244,6 +296,8 @@ final class ChatViewModel: ObservableObject {
         isSending = true
         errorMessage = nil
         currentModelStatus = nil
+        generationStartTime = Date()
+        lastGenerationDuration = nil
 
         do {
             let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
@@ -261,15 +315,13 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func generateAssistantReply(in conversation: ConversationRecord) async throws {
-        let outboundMessages = conversation.messages
-            .sorted(by: { $0.createdAt < $1.createdAt })
-            .map { record -> ChatMessagePayload in
-                var decodedAttachments: [MessageAttachment]? = nil
-                if let data = record.decryptedAttachmentsData {
-                    decodedAttachments = try? JSONDecoder().decode([MessageAttachment].self, from: data)
-                }
-                return ChatMessagePayload(id: record.id, role: record.role, content: record.decryptedContent, attachments: decodedAttachments, createdAt: record.createdAt)
-            }
+        let systemPrompt = appState.settingsStore.composedSystemPrompt(
+            conversationSystemPrompt: conversation.resolvedSystemPrompt
+        )
+        let outboundMessages = trimmedOutboundMessages(
+            for: conversation,
+            systemPrompt: systemPrompt
+        )
 
         let assistantMessage = try repository.appendMessage(role: .assistant, content: "", to: conversation)
         load()
@@ -280,9 +332,6 @@ final class ChatViewModel: ObservableObject {
             try repository.updateConversation(conversation, modelIdentifier: model)
             load()
         }
-        let systemPrompt = appState.settingsStore.composedSystemPrompt(
-            conversationSystemPrompt: conversation.resolvedSystemPrompt
-        )
         let request = ChatRequest(
             messages: outboundMessages,
             systemPrompt: systemPrompt,
@@ -322,9 +371,62 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    private func trimmedOutboundMessages(
+        for conversation: ConversationRecord,
+        systemPrompt: String?
+    ) -> [ChatMessagePayload] {
+        let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
+        let budget = contextTokenLimit
+        let promptTokenCount = TokenFormatting.estimatedTokenCount(for: systemPrompt ?? "")
+        let messageBudget = max(budget - promptTokenCount, 1)
+
+        var selectedMessages: [ChatMessagePayload] = []
+        var usedTokens = 0
+
+        for record in sortedMessages.reversed() {
+            let payload = messagePayload(for: record)
+            let payloadTokenCount = TokenFormatting.estimatedTokenCount(for: payload.content)
+            if selectedMessages.isEmpty {
+                selectedMessages.append(payload)
+                usedTokens += payloadTokenCount
+                if usedTokens >= messageBudget {
+                    break
+                }
+                continue
+            }
+
+            if usedTokens + payloadTokenCount > messageBudget {
+                break
+            }
+
+            selectedMessages.append(payload)
+            usedTokens += payloadTokenCount
+        }
+
+        return Array(selectedMessages.reversed())
+    }
+
+    private func messagePayload(for record: MessageRecord) -> ChatMessagePayload {
+        var decodedAttachments: [MessageAttachment]? = nil
+        if let data = record.decryptedAttachmentsData {
+            decodedAttachments = try? JSONDecoder().decode([MessageAttachment].self, from: data)
+        }
+        return ChatMessagePayload(
+            id: record.id,
+            role: record.role,
+            content: record.decryptedContent,
+            attachments: decodedAttachments,
+            createdAt: record.createdAt
+        )
+    }
+
     private func finishStreaming() {
+        if let start = generationStartTime {
+            lastGenerationDuration = Date().timeIntervalSince(start)
+        }
         isSending = false
         currentModelStatus = nil
+        generationStartTime = nil
         activeStreamTask = nil
         load()
     }

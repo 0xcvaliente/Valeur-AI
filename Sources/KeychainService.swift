@@ -23,7 +23,7 @@ struct KeychainService {
     private var fallbackServices: [String] {
         [
             "com.valienteclifford.UnifiedAIChat",
-            "com.valienteclifford.ValeurayAI"
+            "com.valienteclifford.ValeurAI"
         ]
     }
 

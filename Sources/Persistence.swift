@@ -15,7 +15,9 @@ final class ConversationRepository {
         )
         descriptor.relationshipKeyPathsForPrefetching = [\.messages]
         let conversations = try context.fetch(descriptor)
-        if try migrateLegacySecrets(in: conversations) {
+        let didMigrateLegacySecrets = try migrateLegacySecrets(in: conversations)
+        let didRefreshTokenUsage = refreshTokenUsage(in: conversations)
+        if didMigrateLegacySecrets || didRefreshTokenUsage {
             try context.save()
         }
         return conversations
@@ -97,6 +99,13 @@ final class ConversationRepository {
         }
     }
 
+    func renameConversation(_ conversation: ConversationRecord, title: String) throws {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        conversation.title = try MessageEncryption.shared.encryptString(trimmed.isEmpty ? "New Chat" : trimmed)
+        updateMetadata(for: conversation)
+        try context.save()
+    }
+
     func updateConversation(
         _ conversation: ConversationRecord,
         provider: LLMProvider? = nil,
@@ -158,5 +167,46 @@ final class ConversationRepository {
 
     private func updateMetadata(for conversation: ConversationRecord) {
         conversation.updatedAt = .now
+        conversation.persistedInputTokenCount = inputTokenCount(for: conversation)
+        conversation.persistedOutputTokenCount = outputTokenCount(for: conversation)
+    }
+
+    private func refreshTokenUsage(in conversations: [ConversationRecord]) -> Bool {
+        var didChange = false
+
+        for conversation in conversations {
+            let inputCount = inputTokenCount(for: conversation)
+            let outputCount = outputTokenCount(for: conversation)
+            if conversation.persistedInputTokenCount != inputCount ||
+                conversation.persistedOutputTokenCount != outputCount {
+                conversation.persistedInputTokenCount = inputCount
+                conversation.persistedOutputTokenCount = outputCount
+                didChange = true
+            }
+        }
+
+        return didChange
+    }
+
+    private func inputTokenCount(for conversation: ConversationRecord) -> Int {
+        let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
+        let nonAssistantText = sortedMessages
+            .filter { $0.role != .assistant }
+            .map(\.decryptedContent)
+            .joined(separator: "\n")
+        let systemPromptText = conversation.resolvedSystemPrompt ?? ""
+        return TokenFormatting.estimatedTokenCount(
+            for: [nonAssistantText, systemPromptText]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        )
+    }
+
+    private func outputTokenCount(for conversation: ConversationRecord) -> Int {
+        let assistantText = conversation.messages
+            .filter { $0.role == .assistant }
+            .map(\.decryptedContent)
+            .joined(separator: "\n")
+        return TokenFormatting.estimatedTokenCount(for: assistantText)
     }
 }

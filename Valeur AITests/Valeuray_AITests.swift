@@ -1,14 +1,14 @@
 //
-//  Valeuray_AITests.swift
-//  Valeuray AITests
+//  Valeur_AITests.swift
+//  Valeur AITests
 //
 //  Created by valienteclifford on 14/04/2026.
 //
 
 import Testing
-@testable import ValeurayAI
+@testable import ValeurAI
 
-struct Valeuray_AITests {
+struct Valeur_AITests {
 
     @Test func example() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.

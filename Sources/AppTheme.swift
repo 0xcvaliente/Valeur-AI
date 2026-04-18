@@ -104,23 +104,31 @@ enum AppTheme {
 
     static let radius: CGFloat = 12
     static let controlRadius: CGFloat = 10
-    static let contentHorizontalPadding: CGFloat = 80
+    static let contentHorizontalPadding: CGFloat = 144
     static let contentTopPadding: CGFloat = 16
-    static let contentBottomPadding: CGFloat = 20
+    static let contentBottomPadding: CGFloat = 36
     static let sectionSpacing: CGFloat = 16
     static let itemSpacing: CGFloat = 12
     static let panelPadding: CGFloat = 28
     static let titlebarBackdropHeight: CGFloat = 64
     static let titlebarContentInset: CGFloat = 32
+    static let systemFontFamilyName = "System"
+    static let nexaFontFamilyName = "Nexa"
 
     static func uiFont(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         let scaledSize = scaled(size)
-        return customFont(size: scaledSize, style: typefaceStyle(for: weight)) ?? .system(size: scaledSize, weight: weight)
+        if let font = resolvedNSFont(size: scaledSize, style: typefaceStyle(for: weight)) {
+            return Font(font)
+        }
+        return .system(size: scaledSize, weight: weight)
     }
 
     static func headingFont(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
         let scaledSize = scaled(size)
-        return customFont(size: scaledSize, style: typefaceStyle(for: weight)) ?? .system(size: scaledSize, weight: weight)
+        if let font = resolvedNSFont(size: scaledSize, style: typefaceStyle(for: weight)) {
+            return Font(font)
+        }
+        return .system(size: scaledSize, weight: weight)
     }
 
     static func monoFont(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
@@ -133,8 +141,7 @@ enum AppTheme {
 
     static func uiNSFont(_ size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
         let scaledSize = scaled(size)
-        if let name = installedFontName(for: typefaceStyle(for: weight)),
-           let font = NSFont(name: name, size: scaledSize) {
+        if let font = resolvedNSFont(size: scaledSize, style: typefaceStyle(for: weight)) {
             return font
         }
         return NSFont.systemFont(ofSize: scaledSize, weight: weight)
@@ -169,11 +176,6 @@ enum AppTheme {
         )
     }
 
-    private static func customFont(size: CGFloat, style: TypefaceStyle) -> Font? {
-        guard let name = installedFontName(for: style) else { return nil }
-        return .custom(name, size: size)
-    }
-
     private static func scaled(_ size: CGFloat) -> CGFloat {
         size * currentFontSize.scale
     }
@@ -182,8 +184,43 @@ enum AppTheme {
         AppFontSize(rawValue: UserDefaults.standard.string(forKey: AppFontSize.defaultsKey) ?? "") ?? .normal
     }
 
-    private static func installedFontName(for style: TypefaceStyle) -> String? {
-        nexaCandidates[style]?.first(where: { NSFont(name: $0, size: 12) != nil })
+    private static var currentFontFamilyName: String {
+        SettingsStore.normalizeFontFamilyName(UserDefaults.standard.string(forKey: "settings.appFontFamily"))
+    }
+
+    static func installedFontFamilyNames() -> [String] {
+        NSFontManager.shared.availableFontFamilies
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    static func fontFamilyOptions() -> [String] {
+        let installed = installedFontFamilyNames().filter {
+            $0.caseInsensitiveCompare(systemFontFamilyName) != .orderedSame &&
+            $0.caseInsensitiveCompare(nexaFontFamilyName) != .orderedSame
+        }
+        return [systemFontFamilyName, nexaFontFamilyName] + installed
+    }
+
+    private static func resolvedNSFont(size: CGFloat, style: TypefaceStyle) -> NSFont? {
+        let familyName = currentFontFamilyName
+        if familyName.caseInsensitiveCompare(systemFontFamilyName) == .orderedSame {
+            return nil
+        }
+
+        if familyName.caseInsensitiveCompare(nexaFontFamilyName) == .orderedSame {
+            guard let name = nexaCandidates[style]?.first(where: { NSFont(name: $0, size: 12) != nil }) else {
+                return nil
+            }
+            return NSFont(name: name, size: size)
+        }
+
+        guard let base = NSFont(name: familyName, size: size) else { return nil }
+        switch style {
+        case .bold:
+            return NSFontManager.shared.convert(base, toHaveTrait: .boldFontMask)
+        default:
+            return base
+        }
     }
 
     private static func typefaceStyle(for weight: Font.Weight) -> TypefaceStyle {
@@ -254,7 +291,7 @@ struct AppChromeButtonStyle: ButtonStyle {
     let tight: Bool
     let showBackground: Bool
 
-    init(tone: AppButtonTone = .secondary, compact: Bool = false, showBorder: Bool = true, tight: Bool = false, showBackground: Bool = true) {
+    init(tone: AppButtonTone = .secondary, compact: Bool = false, showBorder: Bool = false, tight: Bool = false, showBackground: Bool = true) {
         self.tone = tone
         self.compact = compact
         self.showBorder = showBorder

@@ -19,7 +19,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
     var defaultModel: String {
         switch self {
         case .openAI: "gpt-5.4-mini"
-        case .anthropic: "claude-3-7-sonnet-latest"
+        case .anthropic: "claude-sonnet-4-6"
         case .gemini: "gemini-2.5-flash"
         }
     }
@@ -40,19 +40,22 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .openAI:
             [
-                LLMModelPreset(provider: self, title: "Instant", subtitle: "Fast everyday responses", modelIdentifier: "gpt-5.4-mini"),
-                LLMModelPreset(provider: self, title: "Thinking", subtitle: "Stronger reasoning for harder tasks", modelIdentifier: "gpt-5.4"),
-                LLMModelPreset(provider: self, title: "Pro", subtitle: "Highest precision, slower responses", modelIdentifier: "gpt-5.4-pro")
+                LLMModelPreset(provider: self, title: "Reasoning", subtitle: "Best for complex work", modelIdentifier: "gpt-5.4", versionLabel: "gpt-5.4", contextWindowTokens: 1_000_000),
+                LLMModelPreset(provider: self, title: "Balanced", subtitle: "Fast and cost-aware", modelIdentifier: "gpt-5.4-mini", versionLabel: "gpt-5.4-mini", contextWindowTokens: 400_000),
+                LLMModelPreset(provider: self, title: "Lite", subtitle: "Lowest latency and cost", modelIdentifier: "gpt-5.4-nano", versionLabel: "gpt-5.4-nano", contextWindowTokens: 400_000),
+                LLMModelPreset(provider: self, title: "Pro", subtitle: "More compute for harder requests", modelIdentifier: "gpt-5.4-pro", versionLabel: "gpt-5.4-pro", contextWindowTokens: 1_050_000)
             ]
         case .anthropic:
             [
-                LLMModelPreset(provider: self, title: "Instant", subtitle: "Quick Claude replies", modelIdentifier: "claude-3-5-haiku-latest"),
-                LLMModelPreset(provider: self, title: "Thinking", subtitle: "Longer reasoning with Sonnet", modelIdentifier: "claude-3-7-sonnet-latest")
+                LLMModelPreset(provider: self, title: "Opus", subtitle: "Most capable for complex tasks", modelIdentifier: "claude-opus-4-7", versionLabel: "4.7", contextWindowTokens: 1_000_000),
+                LLMModelPreset(provider: self, title: "Sonnet", subtitle: "Best balance of speed and quality", modelIdentifier: "claude-sonnet-4-6", versionLabel: "4.6", contextWindowTokens: 1_000_000),
+                LLMModelPreset(provider: self, title: "Haiku", subtitle: "Fastest option for lightweight tasks", modelIdentifier: "claude-haiku-4-5", versionLabel: "4.5", contextWindowTokens: 200_000)
             ]
         case .gemini:
             [
-                LLMModelPreset(provider: self, title: "Instant", subtitle: "Fast multimodal responses", modelIdentifier: "gemini-2.5-flash"),
-                LLMModelPreset(provider: self, title: "Thinking", subtitle: "Deeper answers with Pro", modelIdentifier: "gemini-2.5-pro")
+                LLMModelPreset(provider: self, title: "Pro", subtitle: "Best for complex reasoning", modelIdentifier: "gemini-2.5-pro", versionLabel: "2.5", contextWindowTokens: 1_048_576),
+                LLMModelPreset(provider: self, title: "Flash", subtitle: "Best price-performance balance", modelIdentifier: "gemini-2.5-flash", versionLabel: "2.5", contextWindowTokens: 1_048_576),
+                LLMModelPreset(provider: self, title: "Flash-Lite", subtitle: "Fastest and most cost efficient", modelIdentifier: "gemini-2.5-flash-lite", versionLabel: "2.5", contextWindowTokens: 1_048_576)
             ]
         }
     }
@@ -60,6 +63,18 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
     func preset(for modelIdentifier: String) -> LLMModelPreset? {
         let normalized = normalizedModelIdentifier(modelIdentifier)
         return presets.first(where: { $0.modelIdentifier == normalized })
+    }
+
+    func versionLabel(for modelIdentifier: String) -> String {
+        preset(for: modelIdentifier)?.versionLabel ?? normalizedModelIdentifier(modelIdentifier)
+    }
+
+    func contextWindowTokens(for modelIdentifier: String) -> Int {
+        preset(for: modelIdentifier)?.contextWindowTokens ?? defaultContextWindowTokens
+    }
+
+    var defaultContextWindowTokens: Int {
+        preset(for: defaultModel)?.contextWindowTokens ?? 1_000_000
     }
 
     func normalizedModelIdentifier(_ modelIdentifier: String) -> String {
@@ -78,8 +93,26 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
             default:
                 return trimmed
             }
-        case .anthropic, .gemini:
-            return trimmed
+        case .anthropic:
+            switch trimmed {
+            case "claude-3-5-haiku-latest", "claude-3-5-haiku-20241022":
+                return "claude-haiku-4-5"
+            case "claude-3-7-sonnet-latest", "claude-sonnet-4-5", "claude-sonnet-4-6-20251001":
+                return "claude-sonnet-4-6"
+            case "claude-opus-4-6":
+                return "claude-opus-4-7"
+            default:
+                return trimmed
+            }
+        case .gemini:
+            switch trimmed {
+            case "gemini-2.0-flash", "gemini-2.0-flash-exp":
+                return "gemini-2.5-flash"
+            case "gemini-1.5-pro", "gemini-1.5-pro-latest":
+                return "gemini-2.5-pro"
+            default:
+                return trimmed
+            }
         }
     }
 }
@@ -89,6 +122,8 @@ struct LLMModelPreset: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let modelIdentifier: String
+    let versionLabel: String
+    let contextWindowTokens: Int
 
     var id: String {
         "\(provider.rawValue)-\(modelIdentifier)"
@@ -96,6 +131,10 @@ struct LLMModelPreset: Identifiable, Hashable {
 
     var selectorText: String {
         "\(provider.selectorTitle) \(title)"
+    }
+
+    var contextWindowLabel: String {
+        TokenFormatting.windowLabel(contextWindowTokens)
     }
 }
 
@@ -156,6 +195,8 @@ final class ConversationRecord {
     var providerRawValue: String
     var modelIdentifier: String
     var systemPromptOverride: String
+    var persistedInputTokenCount: Int
+    var persistedOutputTokenCount: Int
     @Relationship(deleteRule: .cascade, inverse: \MessageRecord.conversation)
     var messages: [MessageRecord]
 
@@ -167,6 +208,8 @@ final class ConversationRecord {
         provider: LLMProvider = .openAI,
         modelIdentifier: String? = nil,
         storedSystemPromptOverride: String = "",
+        persistedInputTokenCount: Int = 0,
+        persistedOutputTokenCount: Int = 0,
         messages: [MessageRecord] = []
     ) {
         self.id = id
@@ -176,6 +219,8 @@ final class ConversationRecord {
         self.providerRawValue = provider.rawValue
         self.modelIdentifier = modelIdentifier ?? provider.defaultModel
         self.systemPromptOverride = storedSystemPromptOverride
+        self.persistedInputTokenCount = persistedInputTokenCount
+        self.persistedOutputTokenCount = persistedOutputTokenCount
         self.messages = messages
     }
 
@@ -193,6 +238,10 @@ final class ConversationRecord {
             .decryptString(systemPromptOverride)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var persistedTotalTokenCount: Int {
+        persistedInputTokenCount + persistedOutputTokenCount
     }
 }
 

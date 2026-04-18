@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import PDFKit
+import AppKit
 
 @MainActor
 final class SettingsStore: ObservableObject {
@@ -12,6 +13,7 @@ final class SettingsStore: ObservableObject {
         didSet {
             defaults.set(defaultProvider.rawValue, forKey: Keys.defaultProvider)
             ensureSelectedModel(for: defaultProvider)
+            syncContextWindow(for: defaultProvider)
         }
     }
 
@@ -59,12 +61,24 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(appAppearance.rawValue, forKey: Keys.appAppearance) }
     }
 
+    @Published var appFontFamilyName: String {
+        didSet { defaults.set(appFontFamilyName, forKey: Keys.appFontFamily) }
+    }
+
     @Published var appFontSize: AppFontSize {
         didSet { defaults.set(appFontSize.rawValue, forKey: Keys.appFontSize) }
     }
 
     @Published var webSearchEnabled: Bool {
         didSet { defaults.set(webSearchEnabled, forKey: Keys.webSearchEnabled) }
+    }
+
+    @Published var chatTone: ChatTone {
+        didSet { defaults.set(chatTone.rawValue, forKey: Keys.chatTone) }
+    }
+
+    @Published private var contextTokenLimitStorage: Int {
+        didSet { defaults.set(contextTokenLimitStorage, forKey: Keys.contextTokenLimit) }
     }
 
     init(keychain: KeychainService, defaults: UserDefaults = .standard) {
@@ -79,9 +93,38 @@ final class SettingsStore: ObservableObject {
         self.memoryDocumentName = defaults.string(forKey: Keys.memoryDocumentName) ?? ""
         self.memoryDocumentContent = Self.migrateToKeychain(keychain: keychain, account: Keys.Keychain.memoryDocumentContent, legacyKey: Keys.Legacy.memoryDocumentContent, defaults: defaults)
         self.appAppearance = AppAppearance(rawValue: defaults.string(forKey: Keys.appAppearance) ?? "") ?? .light
+        self.appFontFamilyName = Self.normalizeFontFamilyName(defaults.string(forKey: Keys.appFontFamily))
         self.appFontSize = AppFontSize(rawValue: defaults.string(forKey: Keys.appFontSize) ?? "") ?? .normal
         self.webSearchEnabled = defaults.object(forKey: Keys.webSearchEnabled) as? Bool ?? false
+        self.chatTone = ChatTone(rawValue: defaults.string(forKey: Keys.chatTone) ?? "") ?? .balanced
+        self.contextTokenLimitStorage = Self.normalizeContextTokenLimit(
+            (defaults.object(forKey: Keys.contextTokenLimit) as? NSNumber)?.intValue ?? 1_000_000
+        )
         ensureSelectedModel(for: defaultProvider)
+    }
+
+    static func normalizeFontFamilyName(_ rawValue: String?) -> String {
+        let trimmed = (rawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return AppTheme.nexaFontFamilyName }
+
+        let lowercased = trimmed.lowercased()
+        if lowercased == AppTheme.systemFontFamilyName.lowercased() {
+            return AppTheme.systemFontFamilyName
+        }
+        if lowercased == AppTheme.nexaFontFamilyName.lowercased() {
+            return AppTheme.nexaFontFamilyName
+        }
+
+        if AppTheme.installedFontFamilyNames().contains(trimmed) {
+            return trimmed
+        }
+
+        return AppTheme.nexaFontFamilyName
+    }
+
+    var contextTokenLimit: Int {
+        get { contextTokenLimitStorage }
+        set { contextTokenLimitStorage = Self.normalizeContextTokenLimit(newValue) }
     }
 
     var selectedModel: String {
@@ -103,6 +146,20 @@ final class SettingsStore: ObservableObject {
         var updated = selectedModelsByProvider
         updated[provider.rawValue] = resolved
         selectedModelsByProvider = updated
+        syncContextWindow(for: provider, modelIdentifier: resolved)
+    }
+
+    func selectedModelPreset(for provider: LLMProvider) -> LLMModelPreset {
+        provider.preset(for: selectedModel(for: provider)) ?? provider.presets[0]
+    }
+
+    func contextWindowTokens(for provider: LLMProvider, modelIdentifier: String? = nil) -> Int {
+        let resolvedModel = modelIdentifier ?? selectedModel(for: provider)
+        return provider.contextWindowTokens(for: resolvedModel)
+    }
+
+    func syncContextWindow(for provider: LLMProvider, modelIdentifier: String? = nil) {
+        contextTokenLimitStorage = contextWindowTokens(for: provider, modelIdentifier: modelIdentifier)
     }
 
     func apiKey(for provider: LLMProvider) -> String {
@@ -194,8 +251,11 @@ final class SettingsStore: ObservableObject {
         static let selectedModel = "settings.selectedModel"
         static let memoryDocumentName = "settings.memoryDocumentName"
         static let appAppearance = "settings.appAppearance"
+        static let appFontFamily = "settings.appFontFamily"
         static let appFontSize = AppFontSize.defaultsKey
         static let webSearchEnabled = "settings.webSearchEnabled"
+        static let chatTone = "settings.chatTone"
+        static let contextTokenLimit = "settings.contextTokenLimit"
 
         enum Keychain {
             static let systemPrompt = "settings-system-prompt"
@@ -228,6 +288,7 @@ final class SettingsStore: ObservableObject {
         if selectedModelsByProvider[provider.rawValue] == nil {
             setSelectedModel(provider.defaultModel, for: provider)
         }
+        syncContextWindow(for: provider)
     }
 
     private static func loadSelectedModels(defaults: UserDefaults, defaultProvider: LLMProvider) -> [String: String] {
@@ -248,6 +309,10 @@ final class SettingsStore: ObservableObject {
         }
 
         return resolved
+    }
+
+    private static func normalizeContextTokenLimit(_ value: Int) -> Int {
+        min(max(value, 16_000), 4_000_000)
     }
 
     private static func extractDocumentText(from url: URL) throws -> String {
@@ -305,6 +370,7 @@ enum PersonalizationError: LocalizedError {
 
 enum AppAppearance: String, CaseIterable, Identifiable {
     case light
+    case system
     case marineBlue
 
     var id: String { rawValue }
@@ -312,13 +378,15 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .light: "Light"
-        case .marineBlue: "Marine Blue"
+        case .system: "System"
+        case .marineBlue: "Dark"
         }
     }
 
-    var colorScheme: ColorScheme {
+    var colorScheme: ColorScheme? {
         switch self {
         case .light: .light
+        case .system: nil
         case .marineBlue: .dark
         }
     }
@@ -349,6 +417,36 @@ enum AppFontSize: String, CaseIterable, Identifiable {
         case .small: 0.94
         case .normal: 1.0
         case .big: 1.12
+        }
+    }
+}
+
+enum ChatTone: String, CaseIterable, Identifiable {
+    case balanced
+    case professional
+    case creative
+    case concise
+    case friendly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .balanced: "Balanced"
+        case .professional: "Professional"
+        case .creative: "Creative"
+        case .concise: "Concise"
+        case .friendly: "Friendly"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .balanced: "slider.horizontal.3"
+        case .professional: "briefcase"
+        case .creative: "paintbrush"
+        case .concise: "bolt"
+        case .friendly: "hand.wave"
         }
     }
 }

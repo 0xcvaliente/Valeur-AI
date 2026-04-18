@@ -1,13 +1,13 @@
 //
-//  Valeuray_AIUITestsLaunchTests.swift
-//  Valeuray AIUITests
+//  Valeur_AIUITestsLaunchTests.swift
+//  Valeur AIUITests
 //
 //  Created by valienteclifford on 14/04/2026.
 //
 
 import XCTest
 
-final class Valeuray_AIUITestsLaunchTests: XCTestCase {
+final class Valeur_AIUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

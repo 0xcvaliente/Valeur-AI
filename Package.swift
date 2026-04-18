@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "ValeurayAI",
+    name: "ValeurAI",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "ValeurayAI",
-            targets: ["ValeurayAI"]
+            name: "ValeurAI",
+            targets: ["ValeurAI"]
         )
     ],
     targets: [
         .executableTarget(
-            name: "ValeurayAI",
+            name: "ValeurAI",
             path: "Sources"
         )
     ]

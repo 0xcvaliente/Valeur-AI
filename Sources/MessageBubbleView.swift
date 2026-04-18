@@ -3,61 +3,58 @@ import SwiftUI
 
 struct MessageBubbleView: View {
     let message: MessageRecord
+    var onEditUserMessage: (() -> Void)? = nil
     @State private var isHovering = false
     @State private var didCopy = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
             if message.role == .user {
-                Spacer(minLength: 60)
+                Spacer(minLength: 120)
             }
 
-            VStack(alignment: .leading, spacing: message.role == .assistant ? 14 : 12) {
-                if showsHeader {
-                    HStack {
-                        if let headerTitle {
-                            Text(headerTitle)
-                                .font(AppTheme.headingFont(11, weight: .semibold))
-                                .textCase(.uppercase)
-                                .foregroundStyle(roleAccent)
-                        }
-                        Spacer()
-                        Text(message.createdAt, style: .time)
-                            .font(AppTheme.monoFont(11, weight: .medium))
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-                }
-                messageContent(fullWidth: message.role != .user)
-            }
-            .modifier(MessageContainerStyle(role: message.role))
-            .frame(maxWidth: contentMaxWidth, alignment: .leading)
-            .overlay(alignment: .topTrailing) {
-                if isHovering && message.role == .assistant {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(message.decryptedContent, forType: .string)
-                        didCopy = true
-                        Task { try? await Task.sleep(for: .seconds(1.5)); didCopy = false }
-                    } label: {
-                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                            .font(AppTheme.uiFont(12, weight: .semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                            .padding(6)
-                            .background(AppTheme.surfacePrimary)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(AppTheme.border, lineWidth: 1)
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: message.role == .user ? 6 : 14) {
+                VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 12) {
+                    if showsHeader {
+                        HStack {
+                            if let headerTitle {
+                                Text(headerTitle)
+                                    .font(AppTheme.headingFont(11, weight: .semibold))
+                                    .textCase(.uppercase)
+                                    .foregroundStyle(roleAccent)
                             }
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            Spacer()
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity)
+
+                    if message.role == .user {
+                        messageContent(fullWidth: false)
+                            .multilineTextAlignment(.trailing)
+                    } else {
+                        messageContent(fullWidth: true)
+                    }
+                }
+                .modifier(MessageContainerStyle(role: message.role))
+                .overlay(alignment: .topTrailing) {
+                    if isHovering && message.role == .assistant {
+                        copyButton
+                            .padding(.top, 8)
+                            .padding(.trailing, 8)
+                    }
+                }
+
+                if isHovering, message.role == .user, hasEditableText {
+                    userActionRow
                 }
             }
+            .frame(
+                maxWidth: contentMaxWidth,
+                alignment: message.role == .user ? .trailing : .leading
+            )
             .animation(.easeInOut(duration: 0.15), value: isHovering)
 
             if message.role != .user {
-                Spacer(minLength: 60)
+                Spacer(minLength: 120)
             }
         }
         .onHover { isHovering = $0 }
@@ -80,17 +77,17 @@ struct MessageBubbleView: View {
     }
 
     private var showsHeader: Bool {
-        message.role != .assistant
+        message.role == .system
     }
 
     private var headerTitle: String? {
         switch message.role {
-        case .user:
-            "You"
-        case .assistant:
-            nil
         case .system:
             "System"
+        case .user:
+            nil
+        case .assistant:
+            nil
         }
     }
 
@@ -108,6 +105,66 @@ struct MessageBubbleView: View {
     private var roleAccent: Color {
         message.role == .user ? AppTheme.textPrimary : AppTheme.textSecondary
     }
+
+    private var hasEditableText: Bool {
+        !message.decryptedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var copyButton: some View {
+        Button {
+            copyMessageText()
+        } label: {
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                .font(AppTheme.uiFont(12, weight: .semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(AppTheme.surfacePrimary)
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(AppTheme.border, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    private var editButton: some View {
+        Button {
+            onEditUserMessage?()
+        } label: {
+            Image(systemName: "pencil")
+                .font(AppTheme.uiFont(12, weight: .semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(AppTheme.surfacePrimary)
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(AppTheme.border, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
+    private var userActionRow: some View {
+        HStack(spacing: 8) {
+            Spacer(minLength: 0)
+            copyButton
+            editButton
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.trailing, 4)
+    }
+
+    private func copyMessageText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message.decryptedContent, forType: .string)
+        didCopy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            didCopy = false
+        }
+    }
 }
 
 private struct MessageContainerStyle: ViewModifier {
@@ -124,19 +181,11 @@ private struct MessageContainerStyle: ViewModifier {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .background(AppTheme.surfaceSecondary)
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                        .strokeBorder(AppTheme.border, lineWidth: 1)
-                }
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
         case .system:
             content
                 .padding(18)
                 .background(AppTheme.orange500.opacity(0.10))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                        .strokeBorder(AppTheme.orange500.opacity(0.22), lineWidth: 1)
-                }
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
         }
     }
@@ -191,10 +240,6 @@ struct CodeBlockView: View {
         }
         .padding(14)
         .background(AppTheme.surfaceSecondary)
-        .overlay {
-            RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                .strokeBorder(AppTheme.border, lineWidth: 1)
-        }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
     }
 }

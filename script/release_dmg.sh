@@ -18,7 +18,7 @@ Options:
 Examples:
   ./script/release_dmg.sh --local
   ./script/release_dmg.sh --team-id ABCDE12345
-  ./script/release_dmg.sh --team-id ABCDE12345 --notary-profile valeuray-ai-notary
+  ./script/release_dmg.sh --team-id ABCDE12345 --notary-profile valeur-ai-notary
 EOF
 }
 
@@ -29,7 +29,7 @@ MODE="developer-id"
 TEAM_ID=""
 NOTARY_PROFILE=""
 PROJECT_PATH="valeuray.xcodeproj"
-SCHEME="Valeuray AI"
+SCHEME="Valeur AI"
 EXPORT_OPTIONS_TEMPLATE="$PROJECT_ROOT/Distribution/ExportOptions-DeveloperID.plist.template"
 
 while [[ $# -gt 0 ]]; do

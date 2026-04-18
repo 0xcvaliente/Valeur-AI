@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "52F58D472F8EAFDD007EAE5F"
-               BuildableName = "Valeuray AI.app"
-               BlueprintName = "Valeuray AI"
+               BuildableName = "Valeur AI.app"
+               BlueprintName = "Valeur AI"
                ReferencedContainer = "container:valeuray.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -46,8 +46,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "52F58D472F8EAFDD007EAE5F"
-            BuildableName = "Valeuray AI.app"
-            BlueprintName = "Valeuray AI"
+            BuildableName = "Valeur AI.app"
+            BlueprintName = "Valeur AI"
             ReferencedContainer = "container:valeuray.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -63,8 +63,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "52F58D472F8EAFDD007EAE5F"
-            BuildableName = "Valeuray AI.app"
-            BlueprintName = "Valeuray AI"
+            BuildableName = "Valeur AI.app"
+            BlueprintName = "Valeur AI"
             ReferencedContainer = "container:valeuray.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -74,7 +74,7 @@
    </AnalyzeAction>
    <ArchiveAction
       buildConfiguration = "Release"
-      customArchiveName = "Valeuray AI"
+      customArchiveName = "Valeur AI"
       revealArchiveInOrganizer = "YES">
    </ArchiveAction>
 </Scheme>

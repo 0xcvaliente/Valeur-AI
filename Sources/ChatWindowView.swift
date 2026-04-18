@@ -6,9 +6,12 @@ struct ChatWindowView: View {
     @ObservedObject var settingsStore: SettingsStore
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var isSidebarPinned = false
+    @State private var isSidebarHovered = false
+    @State private var isSidebarStripHovered = false
     @State private var showSettings = false
     @State private var hideWorkItem: DispatchWorkItem?
     private let integratedSidebarWidth: CGFloat = 280
+    private let sidebarHoverStripWidth: CGFloat = 20
 
     var body: some View {
         splitView
@@ -32,7 +35,7 @@ struct ChatWindowView: View {
                             Image(systemName: "square.and.pencil")
                                 .font(AppTheme.uiFont(15, weight: .semibold))
                         }
-                        .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true, showBorder: false, tight: true, showBackground: false))
+                        .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true, showBorder: false, tight: true))
                         .help("New Chat")
                     }
                 }
@@ -40,9 +43,9 @@ struct ChatWindowView: View {
             .navigationTitle("")
             .preferredColorScheme(settingsStore.appAppearance.colorScheme)
             .sheet(isPresented: $showSettings) {
-                SettingsView()
+                SettingsView(viewModel: viewModel)
                     .environmentObject(settingsStore)
-                    .frame(minWidth: 640, minHeight: 440)
+                    .frame(width: 920, height: 760)
             }
             .alert("Error", isPresented: Binding(
                 get: { viewModel.errorMessage != nil },
@@ -87,9 +90,9 @@ struct ChatWindowView: View {
                         showSettings = true
                     }
                 },
-                onHoverChanged: handleHover
+                onHoverChanged: handleSidebarHover
             )
-            .navigationSplitViewColumnWidth(min: 200, ideal: 280, max: 480)
+            .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
         } detail: {
             ChatDetailView(viewModel: viewModel)
         }
@@ -98,9 +101,9 @@ struct ChatWindowView: View {
             if !isSidebarPinned {
                 Color.clear
                     .contentShape(Rectangle())
-                    .frame(width: 28)
+                    .frame(width: sidebarHoverStripWidth)
                     .frame(maxHeight: .infinity)
-                    .onHover { handleHover($0) }
+                    .onHover { handleSidebarStripHover($0) }
             }
         }
     }
@@ -124,23 +127,38 @@ struct ChatWindowView: View {
         }
     }
 
-    private func handleHover(_ isHovering: Bool) {
+    private func handleSidebarHover(_ isHovering: Bool) {
+        guard !isSidebarPinned else { return }
+        isSidebarHovered = isHovering
+        updateSidebarHoverState()
+    }
+
+    private func handleSidebarStripHover(_ isHovering: Bool) {
+        guard !isSidebarPinned else { return }
+        isSidebarStripHovered = isHovering
+        updateSidebarHoverState()
+    }
+
+    private func updateSidebarHoverState() {
         guard !isSidebarPinned else { return }
         hideWorkItem?.cancel()
         hideWorkItem = nil
-        if isHovering {
+
+        if isSidebarHovered || isSidebarStripHovered {
             withAnimation(.easeInOut(duration: 0.2)) {
                 columnVisibility = .all
             }
-        } else {
-            let work = DispatchWorkItem {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    columnVisibility = .detailOnly
-                }
-            }
-            hideWorkItem = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
+            return
         }
+
+        let work = DispatchWorkItem {
+            guard !isSidebarPinned, !isSidebarHovered, !isSidebarStripHovered else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                columnVisibility = .detailOnly
+            }
+        }
+        hideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: work)
     }
 }
 

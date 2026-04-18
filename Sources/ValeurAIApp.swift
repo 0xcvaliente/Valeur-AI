@@ -13,20 +13,44 @@ struct ValeurAIApp: App {
             try ModelContainer(for: ConversationRecord.self, MessageRecord.self)
         }
 
+        func removePersistentStoreFiles() {
+            let fm = FileManager.default
+            guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+                return
+            }
+
+            let storeDirectory = appSupport
+                .appending(path: Bundle.main.bundleIdentifier ?? "com.sehford.valeurayai.macosapp")
+            let storeBaseURL = storeDirectory.appending(path: "default.store")
+            let candidates = [
+                storeBaseURL,
+                URL(fileURLWithPath: storeBaseURL.path + "-wal"),
+                URL(fileURLWithPath: storeBaseURL.path + "-shm"),
+                URL(fileURLWithPath: storeBaseURL.path + "-journal")
+            ]
+
+            for url in candidates {
+                try? fm.removeItem(at: url)
+            }
+        }
+
         do {
             modelContainer = try buildContainer()
         } catch {
-            let fm = FileManager.default
-            if let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-                let storeFile = appSupport
-                    .appending(path: Bundle.main.bundleIdentifier ?? "com.sehford.valeurayai.macosapp")
-                    .appending(path: "default.store")
-                try? fm.removeItem(at: storeFile)
-            }
+            removePersistentStoreFiles()
             do {
                 modelContainer = try buildContainer()
             } catch let finalError {
-                fatalError("Data store initialization failed after recovery attempt: \(finalError)")
+                print("Data store initialization failed after recovery attempt: \(finalError)")
+                do {
+                    modelContainer = try ModelContainer(
+                        for: ConversationRecord.self,
+                        MessageRecord.self,
+                        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+                    )
+                } catch {
+                    fatalError("In-memory data store initialization failed: \(error)")
+                }
             }
         }
 
@@ -56,7 +80,7 @@ struct ValeurAIApp: App {
 }
 
 struct WindowAppearanceSynchronizer: NSViewRepresentable {
-    let colorScheme: ColorScheme
+    let colorScheme: ColorScheme?
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -73,7 +97,7 @@ struct WindowAppearanceSynchronizer: NSViewRepresentable {
     final class Coordinator: NSObject {
         private var observers: [NSObjectProtocol] = []
 
-        func observe(view: NSView, colorScheme: ColorScheme) {
+        func observe(view: NSView, colorScheme: ColorScheme?) {
             DispatchQueue.main.async { [weak self, weak view] in
                 guard let self, let window = view?.window else { return }
                 self.apply(to: window, colorScheme: colorScheme)
@@ -92,11 +116,22 @@ struct WindowAppearanceSynchronizer: NSViewRepresentable {
             }
         }
 
-        func apply(to window: NSWindow?, colorScheme: ColorScheme) {
+        func apply(to window: NSWindow?, colorScheme: ColorScheme?) {
             guard let window else { return }
+            guard let colorScheme else {
+                window.appearance = nil
+                window.isOpaque = false
+                window.backgroundColor = .clear
+                window.titlebarSeparatorStyle = .none
+                stripToolbarBackground(in: window)
+                return
+            }
+
             let name: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
             window.appearance = NSAppearance(named: name)
+            window.isOpaque = false
             window.backgroundColor = .clear
+            window.titlebarSeparatorStyle = .none
             stripToolbarBackground(in: window)
         }
 
@@ -137,7 +172,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.titlebarAppearsTransparent = true
                 window.toolbarStyle = .unified
                 window.isMovableByWindowBackground = true
+                window.isOpaque = false
                 window.backgroundColor = .clear
+                window.titlebarSeparatorStyle = .none
                 window.toolbar?.showsBaselineSeparator = false
                 if let rootView = window.contentView?.superview {
                     for view in rootView.subviews where NSStringFromClass(type(of: view)).contains("TitlebarContainer") {

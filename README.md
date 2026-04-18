@@ -1,6 +1,6 @@
-# Valeuray AI
+# Valeur AI
 
-Valeuray AI is a native macOS desktop chat client for technical users who want a local-first interface for OpenAI, Anthropic, and Gemini without adding a backend of their own.
+Valeur AI is a native macOS desktop chat client for technical users who want a local-first interface for OpenAI, Anthropic, and Gemini without adding a backend of their own.
 
 The app is built with SwiftUI, SwiftData, async/await, and Keychain-backed secret storage. It is designed for private use, direct provider access, and local conversation history on the Mac.
 
@@ -17,7 +17,7 @@ This is not a zero-setup consumer app. Users are expected to bring their own Ope
 
 ## Current Status
 
-Valeuray AI is best described as a strong beta for private technical use.
+Valeur AI is best described as a strong beta for private technical use.
 
 What is already in place:
 
@@ -98,7 +98,7 @@ This app is not yet positioned for:
 
 ## Privacy Model
 
-Valeuray AI is local-first, but not local-only.
+Valeur AI is local-first, but not local-only.
 
 Stored locally:
 
@@ -119,7 +119,7 @@ Sent to providers when you use them:
 
 Not included:
 
-- there is no hosted Valeuray AI backend in this repo
+- there is no hosted Valeur AI backend in this repo
 - there is no built-in account system
 - there is no telemetry or analytics pipeline in the app code today
 
@@ -149,7 +149,7 @@ Core implementation areas:
 ### Recommended: Xcode
 
 1. Open [`valeuray.xcodeproj`](valeuray.xcodeproj).
-2. Select the `Valeuray AI` scheme.
+2. Select the `Valeur AI` scheme.
 3. Build and run the app on macOS.
 
 ### SwiftPM
@@ -232,7 +232,7 @@ Run:
 
 The project also includes App Store Connect export support:
 
-- [`ValeurayAI.entitlements`](ValeurayAI.entitlements)
+- [`ValeurAI.entitlements`](ValeurAI.entitlements)
 - [`Distribution/ExportOptions-AppStoreConnect.plist.template`](Distribution/ExportOptions-AppStoreConnect.plist.template)
 
 Recommended flow:
@@ -246,14 +246,14 @@ Recommended flow:
 ## Known Limitations
 
 - The app depends on end-user provider keys.
-- There is no Valeuray AI backend in this repo.
+- There is no Valeur AI backend in this repo.
 - Automated tests are currently light.
 - Conversation history is encrypted at rest locally, but the app is not end-to-end encrypted.
 - Upstream providers still receive the content needed to answer requests.
 
 ## Final Assessment
 
-As it stands today, Valeuray AI is a credible private desktop client for technical users.
+As it stands today, Valeur AI is a credible private desktop client for technical users.
 
 The core product direction is sound:
 

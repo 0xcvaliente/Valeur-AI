@@ -1,13 +1,13 @@
 //
-//  Valeuray_AIUITests.swift
-//  Valeuray AIUITests
+//  Valeur_AIUITests.swift
+//  Valeur AIUITests
 //
 //  Created by valienteclifford on 14/04/2026.
 //
 
 import XCTest
 
-final class Valeuray_AIUITests: XCTestCase {
+final class Valeur_AIUITests: XCTestCase {
 
     override func setUpWithError() throws {
         // Put setup code here. This method is called before the invocation of each test method in the class.

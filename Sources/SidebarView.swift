@@ -6,92 +6,112 @@ struct SidebarView: View {
     @ObservedObject var settingsStore: SettingsStore
     let onNewChatRequested: () -> Void
     let onConversationSelected: () -> Void
+    let onSettingsTapped: () -> Void
+    let onHoverChanged: (Bool) -> Void
     @State private var searchText = ""
     @State private var activeSection: SidebarSection = .allChats
+    @State private var renamingConversation: ConversationRecord?
+    @State private var renameText = ""
 
     var body: some View {
-        ZStack {
-            SidebarBackground()
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    SidebarBrandHeader(onNewChat: onNewChatRequested)
 
-            VStack(alignment: .leading, spacing: 0) {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        SidebarBrandHeader(onNewChat: onNewChatRequested)
+                    SidebarSearchField(text: $searchText)
 
-                        SidebarAppearancePicker(selection: $settingsStore.appAppearance)
-
-                        LLMSelectorMenu(viewModel: viewModel, settingsStore: settingsStore)
-
-                        SidebarSearchField(text: $searchText)
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Navigate")
-                                .font(AppTheme.headingFont(12, weight: .semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-
-                            ForEach(SidebarSection.allCases) { section in
-                                SidebarSectionButton(
-                                    section: section,
-                                    isSelected: activeSection == section
-                                ) {
-                                    activeSection = section
-                                }
+                    VStack(alignment: .leading, spacing: 10) {
+                        SidebarSectionLabel(title: "Navigate")
+                        ForEach(SidebarSection.allCases) { section in
+                            SidebarSectionButton(
+                                section: section,
+                                isSelected: activeSection == section
+                            ) {
+                                activeSection = section
                             }
                         }
+                    }
+                    .padding(14)
+                    .background(SidebarCardBackground())
 
-                        VStack(alignment: .leading, spacing: 14) {
-                            if groupedConversations.isEmpty {
-                                SidebarEmptyState(section: activeSection)
-                            } else {
-                                ForEach(groupedConversations, id: \.title) { group in
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text(group.title)
-                                            .font(AppTheme.headingFont(12, weight: .semibold))
-                                            .foregroundStyle(AppTheme.textSecondary)
+                    VStack(alignment: .leading, spacing: AppTheme.itemSpacing) {
+                        if groupedConversations.isEmpty {
+                            SidebarEmptyState(section: activeSection)
+                        } else {
+                            ForEach(groupedConversations, id: \.title) { group in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    SidebarSectionLabel(title: group.title)
 
-                                        ForEach(group.items) { conversation in
-                                            SidebarConversationRow(
-                                                conversation: conversation,
-                                                isSelected: viewModel.selectedConversation?.id == conversation.id
-                                            )
-                                            .onTapGesture {
-                                                viewModel.selectedConversation = conversation
-                                                onConversationSelected()
+                                    ForEach(group.items) { conversation in
+                                        SidebarConversationRow(
+                                            conversation: conversation,
+                                            isSelected: viewModel.selectedConversation?.id == conversation.id
+                                        )
+                                        .onTapGesture {
+                                            viewModel.selectedConversation = conversation
+                                            onConversationSelected()
+                                        }
+                                        .contextMenu {
+                                            Button("Rename...") {
+                                                renamingConversation = conversation
+                                                renameText = conversation.decryptedTitle
                                             }
-                                            .contextMenu {
-                                                Button("Delete Chat", role: .destructive) {
-                                                    viewModel.selectedConversation = conversation
-                                                    viewModel.deleteSelectedConversation()
-                                                }
+                                            Divider()
+                                            Button("Delete Chat", role: .destructive) {
+                                                viewModel.selectedConversation = conversation
+                                                viewModel.deleteSelectedConversation()
                                             }
                                         }
                                     }
                                 }
+                                .padding(14)
+                                .background(SidebarCardBackground())
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, 12)
                 }
-
-                Spacer(minLength: 12)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Rectangle()
-                        .fill(AppTheme.border.opacity(0.7))
-                        .frame(height: 1)
-
-                    SettingsLink {
-                        SidebarActionLabel(title: "Settings", icon: "gearshape")
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
             }
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Button(action: onSettingsTapped) {
+                    SidebarActionLabel(title: "Settings", icon: "gearshape")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(SidebarCardBackground())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 18)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.sidebarGrey)
+        .onHover { onHoverChanged($0) }
         .toolbar(removing: .sidebarToggle)
+        .alert("Rename Chat", isPresented: Binding(
+            get: { renamingConversation != nil },
+            set: { if !$0 { renamingConversation = nil } }
+        )) {
+            TextField("Chat name", text: $renameText)
+            Button("Rename") {
+                if let conv = renamingConversation {
+                    viewModel.renameConversation(conv, title: renameText)
+                }
+                renamingConversation = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingConversation = nil
+            }
+        } message: {
+            Text("Enter a new name for this conversation.")
+        }
     }
 
     private var groupedConversations: [ConversationGroup] {
@@ -141,10 +161,6 @@ struct SidebarAppearancePicker: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .background(selection == appearance ? AppTheme.surfacePrimary : AppTheme.surfaceSecondary)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                                    .strokeBorder(selection == appearance ? AppTheme.borderStrong : AppTheme.border, lineWidth: 1)
-                            }
                             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -158,13 +174,19 @@ struct SidebarBrandHeader: View {
     let onNewChat: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 12) {
             HStack(spacing: 10) {
-                ValeurayLogoMark(size: 22)
+                ValeurLogoMark(size: 24)
 
-                Text("Valeuray AI")
-                    .font(AppTheme.headingFont(20, weight: .semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Valeur AI")
+                        .font(AppTheme.headingFont(16, weight: .semibold))
+                        .foregroundStyle(AppTheme.textPrimary)
+
+                    Text("Conversations")
+                        .font(AppTheme.uiFont(12, weight: .medium))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
             }
 
             Spacer()
@@ -172,21 +194,26 @@ struct SidebarBrandHeader: View {
             Button(action: onNewChat) {
                 Image(systemName: "square.and.pencil")
                     .font(AppTheme.uiFont(14, weight: .semibold))
-                    .foregroundStyle(AppTheme.textPrimary)
+                    .foregroundStyle(Color.white)
                     .frame(width: 34, height: 34)
-                    .background(AppTheme.surfaceSecondary)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                            .strokeBorder(AppTheme.border, lineWidth: 1)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+                    .background(
+                        LinearGradient(
+                            colors: [AppTheme.orange600, AppTheme.orange500],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             .buttonStyle(.plain)
         }
+        .padding(14)
+        .background(SidebarCardBackground())
+
     }
 }
 
-struct ValeurayLogoMark: View {
+struct ValeurLogoMark: View {
     let size: CGFloat
 
     var body: some View {
@@ -240,17 +267,29 @@ struct SidebarSearchField: View {
                 .font(AppTheme.uiFont(14, weight: .regular))
                 .textFieldStyle(.plain)
                 .foregroundStyle(AppTheme.textPrimary)
-            Image(systemName: "sparkles")
-                .foregroundStyle(AppTheme.textSecondary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(AppTheme.surfaceSecondary)
-        .overlay {
-            RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                .strokeBorder(AppTheme.border, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+        .background(SidebarCardBackground())
+    }
+}
+
+private struct SidebarSectionLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(AppTheme.headingFont(11, weight: .bold))
+            .tracking(0.6)
+            .foregroundStyle(AppTheme.textSecondary)
+            .textCase(.uppercase)
+    }
+}
+
+private struct SidebarCardBackground: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
+            .fill(AppTheme.surfacePrimary)
     }
 }
 
@@ -293,7 +332,7 @@ struct SidebarSectionButton: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .background(isSelected ? AppTheme.surfaceSecondary : Color.clear)
+                .background(isSelected ? AppTheme.chromeElevated : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -311,6 +350,7 @@ struct SidebarActionLabel: View {
                 .frame(width: 16)
             Text(title)
                 .font(AppTheme.uiFont(14, weight: .medium))
+                .lineLimit(1)
         }
         .foregroundStyle(AppTheme.textPrimary)
     }
@@ -325,12 +365,7 @@ struct SidebarEmptyState: View {
             .foregroundStyle(AppTheme.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(AppTheme.surfaceSecondary)
-            .overlay {
-                RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                    .strokeBorder(AppTheme.border, lineWidth: 1)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+            .background(SidebarCardBackground())
     }
 }
 
@@ -352,12 +387,12 @@ struct SidebarConversationRow: View {
             Text(summaryText)
                 .font(AppTheme.uiFont(11, weight: .regular))
                 .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
+                .lineLimit(1)
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? AppTheme.surfaceSecondary : Color.clear)
+        .background(isSelected ? AppTheme.chromeElevated : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
     }
 
@@ -379,21 +414,15 @@ struct ProviderBadge: View {
 
     var body: some View {
         Text(provider.displayName)
-            .font(AppTheme.uiFont(9, weight: .medium))
+            .font(AppTheme.uiFont(10, weight: .medium))
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(Color.black.opacity(0.04))
+            .background(AppTheme.surfacePrimary.opacity(0.9))
             .foregroundStyle(AppTheme.textSecondary)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 }
 
-struct SidebarBackground: View {
-    var body: some View {
-        AppTheme.sidebarGrey
-            .ignoresSafeArea()
-    }
-}
 
 struct ConversationGroup {
     let title: String

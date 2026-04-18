@@ -16,27 +16,27 @@
 			containerPortal = A10000000000000000000061 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 52F58D472F8EAFDD007EAE5F;
-			remoteInfo = "Valeuray AI";
+			remoteInfo = "Valeur AI";
 		};
 		52F58D612F8EAFDE007EAE5F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A10000000000000000000061 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 52F58D472F8EAFDD007EAE5F;
-			remoteInfo = "Valeuray AI";
+			remoteInfo = "Valeur AI";
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		52F58D482F8EAFDD007EAE5F /* Valeuray AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Valeuray AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		52F58D562F8EAFDE007EAE5F /* Valeuray AITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Valeuray AITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		52F58D602F8EAFDE007EAE5F /* Valeuray AIUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Valeuray AIUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		52F58D482F8EAFDD007EAE5F /* Valeur AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Valeur AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		52F58D562F8EAFDE007EAE5F /* Valeur AITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Valeur AITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		52F58D602F8EAFDE007EAE5F /* Valeur AIUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Valeur AIUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000033 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		52F58D592F8EAFDE007EAE5F /* Valeuray AITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "Valeuray AITests"; sourceTree = "<group>"; };
-		52F58D632F8EAFDE007EAE5F /* Valeuray AIUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "Valeuray AIUITests"; sourceTree = "<group>"; };
+		52F58D592F8EAFDE007EAE5F /* Valeur AITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "Valeur AITests"; sourceTree = "<group>"; };
+		52F58D632F8EAFDE007EAE5F /* Valeur AIUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "Valeur AIUITests"; sourceTree = "<group>"; };
 		A10000000000000000000051 /* Sources */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Sources; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -70,8 +70,8 @@
 			children = (
 				A10000000000000000000051 /* Sources */,
 				A10000000000000000000033 /* Assets.xcassets */,
-				52F58D592F8EAFDE007EAE5F /* Valeuray AITests */,
-				52F58D632F8EAFDE007EAE5F /* Valeuray AIUITests */,
+				52F58D592F8EAFDE007EAE5F /* Valeur AITests */,
+				52F58D632F8EAFDE007EAE5F /* Valeur AIUITests */,
 				A10000000000000000000052 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -79,9 +79,9 @@
 		A10000000000000000000052 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				52F58D482F8EAFDD007EAE5F /* Valeuray AI.app */,
-				52F58D562F8EAFDE007EAE5F /* Valeuray AITests.xctest */,
-				52F58D602F8EAFDE007EAE5F /* Valeuray AIUITests.xctest */,
+				52F58D482F8EAFDD007EAE5F /* Valeur AI.app */,
+				52F58D562F8EAFDE007EAE5F /* Valeur AITests.xctest */,
+				52F58D602F8EAFDE007EAE5F /* Valeur AIUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -89,9 +89,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		52F58D472F8EAFDD007EAE5F /* Valeuray AI */ = {
+		52F58D472F8EAFDD007EAE5F /* Valeur AI */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 52F58D6E2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeuray AI" */;
+			buildConfigurationList = 52F58D6E2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeur AI" */;
 			buildPhases = (
 				52F58D442F8EAFDD007EAE5F /* Sources */,
 				52F58D452F8EAFDD007EAE5F /* Frameworks */,
@@ -104,16 +104,16 @@
 			fileSystemSynchronizedGroups = (
 				A10000000000000000000051 /* Sources */,
 			);
-			name = "Valeuray AI";
+			name = "Valeur AI";
 			packageProductDependencies = (
 			);
-			productName = "Valeuray AI";
-			productReference = 52F58D482F8EAFDD007EAE5F /* Valeuray AI.app */;
+			productName = "Valeur AI";
+			productReference = 52F58D482F8EAFDD007EAE5F /* Valeur AI.app */;
 			productType = "com.apple.product-type.application";
 		};
-		52F58D552F8EAFDE007EAE5F /* Valeuray AITests */ = {
+		52F58D552F8EAFDE007EAE5F /* Valeur AITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 52F58D6F2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeuray AITests" */;
+			buildConfigurationList = 52F58D6F2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeur AITests" */;
 			buildPhases = (
 				52F58D522F8EAFDE007EAE5F /* Sources */,
 				52F58D532F8EAFDE007EAE5F /* Frameworks */,
@@ -125,18 +125,18 @@
 				52F58D582F8EAFDE007EAE5F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				52F58D592F8EAFDE007EAE5F /* Valeuray AITests */,
+				52F58D592F8EAFDE007EAE5F /* Valeur AITests */,
 			);
-			name = "Valeuray AITests";
+			name = "Valeur AITests";
 			packageProductDependencies = (
 			);
-			productName = "Valeuray AITests";
-			productReference = 52F58D562F8EAFDE007EAE5F /* Valeuray AITests.xctest */;
+			productName = "Valeur AITests";
+			productReference = 52F58D562F8EAFDE007EAE5F /* Valeur AITests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		52F58D5F2F8EAFDE007EAE5F /* Valeuray AIUITests */ = {
+		52F58D5F2F8EAFDE007EAE5F /* Valeur AIUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 52F58D702F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeuray AIUITests" */;
+			buildConfigurationList = 52F58D702F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeur AIUITests" */;
 			buildPhases = (
 				52F58D5C2F8EAFDE007EAE5F /* Sources */,
 				52F58D5D2F8EAFDE007EAE5F /* Frameworks */,
@@ -148,13 +148,13 @@
 				52F58D622F8EAFDE007EAE5F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				52F58D632F8EAFDE007EAE5F /* Valeuray AIUITests */,
+				52F58D632F8EAFDE007EAE5F /* Valeur AIUITests */,
 			);
-			name = "Valeuray AIUITests";
+			name = "Valeur AIUITests";
 			packageProductDependencies = (
 			);
-			productName = "Valeuray AIUITests";
-			productReference = 52F58D602F8EAFDE007EAE5F /* Valeuray AIUITests.xctest */;
+			productName = "Valeur AIUITests";
+			productReference = 52F58D602F8EAFDE007EAE5F /* Valeur AIUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -193,9 +193,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				52F58D472F8EAFDD007EAE5F /* Valeuray AI */,
-				52F58D552F8EAFDE007EAE5F /* Valeuray AITests */,
-				52F58D5F2F8EAFDE007EAE5F /* Valeuray AIUITests */,
+				52F58D472F8EAFDD007EAE5F /* Valeur AI */,
+				52F58D552F8EAFDE007EAE5F /* Valeur AITests */,
+				52F58D5F2F8EAFDE007EAE5F /* Valeur AIUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -252,12 +252,12 @@
 /* Begin PBXTargetDependency section */
 		52F58D582F8EAFDE007EAE5F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 52F58D472F8EAFDD007EAE5F /* Valeuray AI */;
+			target = 52F58D472F8EAFDD007EAE5F /* Valeur AI */;
 			targetProxy = 52F58D572F8EAFDE007EAE5F /* PBXContainerItemProxy */;
 		};
 		52F58D622F8EAFDE007EAE5F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 52F58D472F8EAFDD007EAE5F /* Valeuray AI */;
+			target = 52F58D472F8EAFDD007EAE5F /* Valeur AI */;
 			targetProxy = 52F58D612F8EAFDE007EAE5F /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -279,10 +279,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_ENTITLEMENTS = ValeurayAI.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ValeurAI.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -300,11 +300,11 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 2.2;
+				MARKETING_VERSION = 3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sehford.valeurayai.macosapp;
-				PRODUCT_NAME = "Valeuray AI";
+				PRODUCT_NAME = "Valeur AI";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
@@ -330,10 +330,10 @@
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
-				CODE_SIGN_ENTITLEMENTS = ValeurayAI.entitlements;
+				CODE_SIGN_ENTITLEMENTS = ValeurAI.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 9N65SQ2B63;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -351,11 +351,11 @@
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 2.2;
+				MARKETING_VERSION = 3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sehford.valeurayai.macosapp;
-				PRODUCT_NAME = "Valeuray AI";
+				PRODUCT_NAME = "Valeur AI";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -382,7 +382,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
@@ -393,14 +393,14 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sehford.valeurayai.macosapp.tests;
-				PRODUCT_NAME = "Valeuray AITests";
+				PRODUCT_NAME = "Valeur AITests";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Valeuray AI.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Valeuray AI";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Valeur AI.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Valeur AI";
 			};
 			name = Debug;
 		};
@@ -418,7 +418,7 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 9N65SQ2B63;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
@@ -429,13 +429,13 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sehford.valeurayai.macosapp.tests;
-				PRODUCT_NAME = "Valeuray AITests";
+				PRODUCT_NAME = "Valeur AITests";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Valeuray AI.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Valeuray AI";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Valeur AI.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Valeur AI";
 			};
 			name = Release;
 		};
@@ -454,7 +454,7 @@
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
@@ -465,14 +465,14 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sehford.valeurayai.macosapp.uitests;
-				PRODUCT_NAME = "Valeuray AIUITests";
+				PRODUCT_NAME = "Valeur AIUITests";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Valeuray AI";
+				TEST_TARGET_NAME = "Valeur AI";
 			};
 			name = Debug;
 		};
@@ -489,7 +489,7 @@
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 9N65SQ2B63;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
@@ -500,13 +500,13 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.sehford.valeurayai.macosapp.uitests;
-				PRODUCT_NAME = "Valeuray AIUITests";
+				PRODUCT_NAME = "Valeur AIUITests";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Valeuray AI";
+				TEST_TARGET_NAME = "Valeur AI";
 			};
 			name = Release;
 		};
@@ -611,7 +611,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		52F58D6E2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeuray AI" */ = {
+		52F58D6E2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeur AI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				52F58D682F8EAFDE007EAE5F /* Debug */,
@@ -620,7 +620,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		52F58D6F2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeuray AITests" */ = {
+		52F58D6F2F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeur AITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				52F58D6A2F8EAFDE007EAE5F /* Debug */,
@@ -629,7 +629,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		52F58D702F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeuray AIUITests" */ = {
+		52F58D702F8EAFDE007EAE5F /* Build configuration list for PBXNativeTarget "Valeur AIUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				52F58D6C2F8EAFDE007EAE5F /* Debug */,
