@@ -104,7 +104,7 @@ enum AppTheme {
 
     static let radius: CGFloat = 12
     static let controlRadius: CGFloat = 10
-    static let contentHorizontalPadding: CGFloat = 24
+    static let contentHorizontalPadding: CGFloat = 80
     static let contentTopPadding: CGFloat = 16
     static let contentBottomPadding: CGFloat = 20
     static let sectionSpacing: CGFloat = 16

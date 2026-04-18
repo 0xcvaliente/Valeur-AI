@@ -3,11 +3,13 @@ import SwiftUI
 
 struct MessageBubbleView: View {
     let message: MessageRecord
+    @State private var isHovering = false
+    @State private var didCopy = false
 
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 0) {
             if message.role == .user {
-                Spacer(minLength: 120)
+                Spacer(minLength: 60)
             }
 
             VStack(alignment: .leading, spacing: message.role == .assistant ? 14 : 12) {
@@ -19,28 +21,50 @@ struct MessageBubbleView: View {
                                 .textCase(.uppercase)
                                 .foregroundStyle(roleAccent)
                         }
-
                         Spacer()
-
                         Text(message.createdAt, style: .time)
                             .font(AppTheme.monoFont(11, weight: .medium))
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                 }
-
-                messageContent
+                messageContent(fullWidth: message.role != .user)
             }
             .modifier(MessageContainerStyle(role: message.role))
             .frame(maxWidth: contentMaxWidth, alignment: .leading)
+            .overlay(alignment: .topTrailing) {
+                if isHovering && message.role == .assistant {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(message.decryptedContent, forType: .string)
+                        didCopy = true
+                        Task { try? await Task.sleep(for: .seconds(1.5)); didCopy = false }
+                    } label: {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .font(AppTheme.uiFont(12, weight: .semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .padding(6)
+                            .background(AppTheme.surfacePrimary)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(AppTheme.border, lineWidth: 1)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
 
             if message.role != .user {
-                Spacer(minLength: 120)
+                Spacer(minLength: 60)
             }
         }
+        .onHover { isHovering = $0 }
     }
 
     @ViewBuilder
-    private var messageContent: some View {
+    private func messageContent(fullWidth: Bool) -> some View {
         if let attachmentsData = message.decryptedAttachmentsData {
             AttachmentImagesView(attachmentsData: attachmentsData)
         }
@@ -48,7 +72,7 @@ struct MessageBubbleView: View {
         ForEach(MarkdownBlock.parse(message.decryptedContent)) { block in
             switch block.kind {
             case .markdown(let markdown):
-                MarkdownTextView(markdown: markdown, isUserMessage: message.role == .user)
+                MarkdownTextView(markdown: markdown, fullWidth: fullWidth)
             case .code(let language, let code):
                 CodeBlockView(language: language, code: code)
             }
@@ -62,7 +86,7 @@ struct MessageBubbleView: View {
     private var headerTitle: String? {
         switch message.role {
         case .user:
-            nil
+            "You"
         case .assistant:
             nil
         case .system:
@@ -108,10 +132,10 @@ private struct MessageContainerStyle: ViewModifier {
         case .system:
             content
                 .padding(18)
-                .background(AppTheme.blue500.opacity(0.16))
+                .background(AppTheme.orange500.opacity(0.10))
                 .overlay {
                     RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                        .strokeBorder(AppTheme.blue500.opacity(0.28), lineWidth: 1)
+                        .strokeBorder(AppTheme.orange500.opacity(0.22), lineWidth: 1)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
         }
@@ -121,27 +145,21 @@ private struct MessageContainerStyle: ViewModifier {
 
 struct MarkdownTextView: View {
     let markdown: String
-    let isUserMessage: Bool
+    var fullWidth: Bool = true
 
     var body: some View {
         let mdOptions = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        if let attributed = try? AttributedString(markdown: markdown, options: mdOptions) {
-            Text(attributed)
-                .font(AppTheme.uiFont(16, weight: .regular))
-                .textSelection(.enabled)
-                .foregroundStyle(textColor)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        let baseText = (try? AttributedString(markdown: markdown, options: mdOptions))
+            .map { Text($0) } ?? Text(markdown)
+        let styled = baseText
+            .font(AppTheme.uiFont(16, weight: .regular))
+            .textSelection(.enabled)
+            .foregroundStyle(AppTheme.textPrimary)
+        if fullWidth {
+            styled.frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            Text(markdown)
-                .font(AppTheme.uiFont(16, weight: .regular))
-                .textSelection(.enabled)
-                .foregroundStyle(textColor)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            styled
         }
-    }
-
-    private var textColor: Color {
-        isUserMessage ? AppTheme.textPrimary : AppTheme.textPrimary
     }
 }
 
@@ -160,8 +178,7 @@ struct CodeBlockView: View {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(code, forType: .string)
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(AppTheme.textPrimary)
+                .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
