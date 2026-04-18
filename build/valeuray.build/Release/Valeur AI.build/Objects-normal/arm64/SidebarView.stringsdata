@@ -1,0 +1,104 @@
+{
+  "source": "/Users/valienteclifford/Documents/Github-Projects/valeurayAI/Sources/SidebarView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Rename Chat",
+        "location": {
+          "startingColumn": 16,
+          "startingLine": 98
+        }
+      },
+      {
+        "comment": "",
+        "key": "Rename...",
+        "location": {
+          "startingColumn": 52,
+          "startingLine": 56
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delete Chat",
+        "location": {
+          "startingColumn": 52,
+          "startingLine": 61
+        }
+      },
+      {
+        "comment": "",
+        "key": "Chat name",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 102
+        }
+      },
+      {
+        "comment": "",
+        "key": "Rename",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 103
+        }
+      },
+      {
+        "comment": "",
+        "key": "Cancel",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 109
+        }
+      },
+      {
+        "comment": "",
+        "key": "Enter a new name for this conversation.",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 113
+        }
+      },
+      {
+        "comment": "",
+        "key": "Appearance",
+        "location": {
+          "startingColumn": 18,
+          "startingLine": 149
+        }
+      },
+      {
+        "comment": "",
+        "key": "Valeur AI",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 182
+        }
+      },
+      {
+        "comment": "",
+        "key": "Conversations",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 186
+        }
+      },
+      {
+        "comment": "",
+        "key": "V",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 231
+        }
+      },
+      {
+        "comment": "",
+        "key": "Search chats",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 266
+        }
+      }
+    ]
+  },
+  "version": 1
+}

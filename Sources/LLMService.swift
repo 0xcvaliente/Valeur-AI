@@ -41,11 +41,27 @@ enum ServiceError: LocalizedError {
     }
 }
 
-struct LLMServiceFactory {
-    let settingsStore: SettingsStore
+@MainActor
+final class LLMServiceFactory {
+    private let settingsStore: SettingsStore
+    private var cache: [LLMProvider: any LLMService] = [:]
 
-    @MainActor
-    func makeService(provider: LLMProvider) -> LLMService {
+    init(settingsStore: SettingsStore) {
+        self.settingsStore = settingsStore
+    }
+
+    func makeService(provider: LLMProvider) -> any LLMService {
+        if let cached = cache[provider] { return cached }
+        let service = build(provider)
+        cache[provider] = service
+        return service
+    }
+
+    func invalidate(for provider: LLMProvider) {
+        cache.removeValue(forKey: provider)
+    }
+
+    private func build(_ provider: LLMProvider) -> any LLMService {
         switch provider {
         case .openAI:
             OpenAIService(apiKey: settingsStore.apiKey(for: .openAI))

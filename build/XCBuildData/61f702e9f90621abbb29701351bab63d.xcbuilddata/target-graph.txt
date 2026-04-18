@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'Valeur AITests' in project 'valeuray'
+➜ Explicit dependency on target 'Valeur AI' in project 'valeuray'
+Target 'Valeur AI' in project 'valeuray' (no dependencies)

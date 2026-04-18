@@ -177,8 +177,10 @@ struct StatusBubbleView: View {
 }
 
 struct LLMSelectorMenu: View {
+    enum Style { case header, inline }
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var settingsStore: SettingsStore
+    var style: Style = .header
 
     var body: some View {
         let currentProvider = viewModel.selectedConversation?.provider ?? settingsStore.defaultProvider
@@ -228,10 +230,17 @@ struct LLMSelectorMenu: View {
                 }
             }
         } label: {
-            LLMSelectorButton(
-                provider: currentProvider,
-                modelIdentifier: currentModelIdentifier
-            )
+            if style == .inline {
+                InlineLLMSelectorButton(
+                    provider: currentProvider,
+                    modelIdentifier: currentModelIdentifier
+                )
+            } else {
+                LLMSelectorButton(
+                    provider: currentProvider,
+                    modelIdentifier: currentModelIdentifier
+                )
+            }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -294,15 +303,15 @@ struct ProviderSelectorMenuRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(provider.displayName)
-                    .font(AppTheme.headingFont(15, weight: .semibold))
+                    .font(AppTheme.headingFont(15, weight: .regular))
                 Text(provider.normalizedModelIdentifier(modelIdentifier))
-                    .font(AppTheme.uiFont(13, weight: .medium))
+                    .font(AppTheme.uiFont(13, weight: .regular))
                     .foregroundStyle(.secondary)
                 Text("Version \(provider.versionLabel(for: modelIdentifier))")
-                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
                 Text("Context \(TokenFormatting.windowLabel(provider.contextWindowTokens(for: modelIdentifier)))")
-                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
             }
 
@@ -310,7 +319,7 @@ struct ProviderSelectorMenuRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark")
-                    .font(AppTheme.uiFont(15, weight: .bold))
+                    .font(AppTheme.uiFont(15, weight: .regular))
             }
         }
         .frame(minWidth: 260, alignment: .leading)
@@ -326,15 +335,15 @@ struct ModelSelectorMenuRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(preset.title)
-                    .font(AppTheme.headingFont(15, weight: .semibold))
+                    .font(AppTheme.headingFont(15, weight: .regular))
                 Text("Version \(preset.versionLabel)")
-                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
                 Text(preset.subtitle)
-                    .font(AppTheme.uiFont(13, weight: .medium))
+                    .font(AppTheme.uiFont(13, weight: .regular))
                     .foregroundStyle(.secondary)
                 Text("Context \(preset.contextWindowLabel)")
-                    .font(AppTheme.uiFont(12, weight: .medium))
+                    .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
             }
 
@@ -342,7 +351,7 @@ struct ModelSelectorMenuRow: View {
 
             if isSelected {
                 Image(systemName: "checkmark")
-                    .font(AppTheme.uiFont(15, weight: .bold))
+                    .font(AppTheme.uiFont(15, weight: .regular))
             }
         }
         .frame(minWidth: 260, alignment: .leading)

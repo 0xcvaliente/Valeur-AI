@@ -362,7 +362,7 @@ private func streamRequest(
                 var request = URLRequest(url: endpoint)
                 request.httpMethod = method
                 request.httpBody = body
-                request.timeoutInterval = 30
+                request.timeoutInterval = 120
                 headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
                 request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 

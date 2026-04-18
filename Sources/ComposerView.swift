@@ -101,7 +101,7 @@ struct ComposerView: View {
 
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text(placeholderPrompts[placeholderIndex])
-                        .font(AppTheme.uiFont(16, weight: .medium))
+                        .font(AppTheme.uiFont(16, weight: .regular))
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(.top, compactTextInset + 1)
                         .padding(.leading, 16)
@@ -237,7 +237,7 @@ struct ComposerView: View {
     }
 
     private var llmSelector: some View {
-        LLMSelectorMenu(viewModel: viewModel, settingsStore: settingsStore)
+        LLMSelectorMenu(viewModel: viewModel, settingsStore: settingsStore, style: .inline)
     }
 
 }
@@ -388,7 +388,7 @@ struct ComposerCircleButton: View {
                 )
 
             Image(systemName: icon)
-                .font(AppTheme.uiFont(13, weight: .bold))
+                .font(AppTheme.uiFont(13, weight: .semibold))
                 .foregroundStyle(activeForeground)
         }
         .frame(width: 34, height: 34)
@@ -408,7 +408,7 @@ struct InlineLLMSelectorButton: View {
                 .lineLimit(1)
 
             Image(systemName: "chevron.down")
-                .font(AppTheme.uiFont(10, weight: .bold))
+                .font(AppTheme.uiFont(10, weight: .semibold))
                 .foregroundStyle(AppTheme.textSecondary)
         }
         .foregroundStyle(AppTheme.textPrimary)

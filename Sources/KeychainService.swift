@@ -20,15 +20,11 @@ struct KeychainService {
         Bundle.main.bundleIdentifier ?? "com.sehford.valeurayai.macosapp"
     }
 
-    private var fallbackServices: [String] {
+    private var legacyServices: [String] {
         [
             "com.valienteclifford.UnifiedAIChat",
             "com.valienteclifford.ValeurAI"
         ]
-    }
-
-    private var knownServices: [String] {
-        [currentService] + fallbackServices.filter { $0 != currentService }
     }
 
     func save(_ value: String, for account: String) throws {
@@ -62,29 +58,16 @@ struct KeychainService {
     }
 
     func read(account: String) throws -> String? {
-        for service in knownServices {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
-                kSecReturnData as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne
-            ]
+        // Current service — no prompt for sandboxed app's own items
+        if let value = try readFrom(service: currentService, account: account) {
+            return value
+        }
 
-            var item: CFTypeRef?
-            let status = SecItemCopyMatching(query as CFDictionary, &item)
-            if status == errSecItemNotFound {
-                continue
-            }
-            guard status == errSecSuccess else {
-                throw KeychainError.unexpectedStatus(status)
-            }
-            guard
-                let data = item as? Data,
-                let value = String(data: data, encoding: .utf8)
-            else {
-                throw KeychainError.invalidData
-            }
+        // Legacy services — may prompt once. On success, migrate and delete.
+        for service in legacyServices {
+            guard let value = try? readFrom(service: service, account: account) else { continue }
+            try? save(value, for: account)
+            deleteFrom(service: service, account: account)
             return value
         }
 
@@ -92,17 +75,46 @@ struct KeychainService {
     }
 
     func delete(account: String) throws {
-        for service in knownServices {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: account
-            ]
-
-            let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else {
-                throw KeychainError.unexpectedStatus(status)
-            }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: currentService,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.unexpectedStatus(status)
         }
+        for service in legacyServices {
+            deleteFrom(service: service, account: account)
+        }
+    }
+
+    private func readFrom(service: String, account: String) throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        guard let data = item as? Data, let value = String(data: data, encoding: .utf8) else {
+            throw KeychainError.invalidData
+        }
+        return value
+    }
+
+    @discardableResult
+    private func deleteFrom(service: String, account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 }

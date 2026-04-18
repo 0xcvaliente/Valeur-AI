@@ -1,0 +1,56 @@
+{
+  "source": "/Users/valienteclifford/Documents/Github-Projects/valeurayAI/Sources/ChatWindowView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 43
+        }
+      },
+      {
+        "comment": "",
+        "key": "Error",
+        "location": {
+          "startingColumn": 20,
+          "startingLine": 50
+        }
+      },
+      {
+        "comment": "",
+        "key": "Hide Sidebar",
+        "location": {
+          "startingColumn": 45,
+          "startingLine": 28
+        }
+      },
+      {
+        "comment": "",
+        "key": "Show Sidebar",
+        "location": {
+          "startingColumn": 62,
+          "startingLine": 28
+        }
+      },
+      {
+        "comment": "",
+        "key": "New Chat",
+        "location": {
+          "startingColumn": 31,
+          "startingLine": 39
+        }
+      },
+      {
+        "comment": "",
+        "key": "OK",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 54
+        }
+      }
+    ]
+  },
+  "version": 1
+}

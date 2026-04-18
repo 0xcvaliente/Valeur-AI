@@ -1,0 +1,296 @@
+{
+  "source": "/Users/valienteclifford/Documents/Github-Projects/valeurayAI/Sources/SettingsView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Done",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 70
+        }
+      },
+      {
+        "comment": "",
+        "key": "Matches the selected model by default. The composer meter shows live usage against this limit, and older messages are trimmed first when the limit is reached.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 207
+        }
+      },
+      {
+        "comment": "",
+        "key": "Choose a provider here, then set the model used for that provider. The sidebar selector switches provider for the current chat, and that chat uses the model configured here.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 219
+        }
+      },
+      {
+        "comment": "",
+        "key": "Default Provider",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 140
+        }
+      },
+      {
+        "comment": "",
+        "key": "Context Window",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 177
+        }
+      },
+      {
+        "comment": "",
+        "key": "Auto-syncs from the selected model, but you can still adjust it manually.",
+        "location": {
+          "startingColumn": 23,
+          "startingLine": 189
+        }
+      },
+      {
+        "comment": "",
+        "key": "System Prompt",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 212
+        }
+      },
+      {
+        "comment": "",
+        "key": "%@ Models",
+        "location": {
+          "startingColumn": 29,
+          "startingLine": 155
+        }
+      },
+      {
+        "comment": "",
+        "key": "Allow Provider Web Search",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 196
+        }
+      },
+      {
+        "comment": "",
+        "key": "Off by default. When enabled, OpenAI and Gemini may call their provider-side search tools for the current request.",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 199
+        }
+      },
+      {
+        "comment": "",
+        "key": "Applies across chats, the sidebar, the composer, and settings.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 270
+        }
+      },
+      {
+        "comment": "",
+        "key": "Font Family",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 242
+        }
+      },
+      {
+        "comment": "",
+        "key": "Font Size",
+        "location": {
+          "startingColumn": 24,
+          "startingLine": 257
+        }
+      },
+      {
+        "comment": "",
+        "key": "No memory document uploaded.",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 337
+        }
+      },
+      {
+        "comment": "",
+        "key": "Your name",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 289
+        }
+      },
+      {
+        "comment": "",
+        "key": "Describe how Valeur AI should respond, what to prioritize, and any standing preferences.",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 297
+        }
+      },
+      {
+        "comment": "",
+        "key": "Upload Document",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 309
+        }
+      },
+      {
+        "comment": "",
+        "key": "Remove Document",
+        "location": {
+          "startingColumn": 32,
+          "startingLine": 315
+        }
+      },
+      {
+        "comment": "",
+        "key": "This document is injected as persistent reference memory when it is relevant to the conversation.",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 328
+        }
+      },
+      {
+        "comment": "",
+        "key": "Active chat usage",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 387
+        }
+      },
+      {
+        "comment": "",
+        "key": "This shows input, output, and total tokens used by the active chat.",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 391
+        }
+      },
+      {
+        "comment": "",
+        "key": "Context Window",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 403
+        }
+      },
+      {
+        "comment": "",
+        "key": "Configured limit for new and active chats.",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 406
+        }
+      },
+      {
+        "comment": "",
+        "key": "Token budget",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 417
+        }
+      },
+      {
+        "comment": "",
+        "key": "Saved across chats",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 429
+        }
+      },
+      {
+        "comment": "",
+        "key": "Keeps adding as you make new chats.",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 432
+        }
+      },
+      {
+        "comment": "",
+        "key": "Input %@",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 443
+        }
+      },
+      {
+        "comment": "",
+        "key": "Output %@",
+        "location": {
+          "startingColumn": 34,
+          "startingLine": 446
+        }
+      },
+      {
+        "comment": "",
+        "key": "Permanently delete every conversation and all of their messages. This action cannot be undone.",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 501
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delete All Conversations?",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 512
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delete All Conversations",
+        "location": {
+          "startingColumn": 27,
+          "startingLine": 508
+        }
+      },
+      {
+        "comment": "",
+        "key": "Delete All",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 515
+        }
+      },
+      {
+        "comment": "",
+        "key": "Cancel",
+        "location": {
+          "startingColumn": 28,
+          "startingLine": 519
+        }
+      },
+      {
+        "comment": "",
+        "key": "This will permanently delete every conversation and all messages. You cannot undo this action.",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 521
+        }
+      },
+      {
+        "comment": "",
+        "key": "Version %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 589
+        }
+      },
+      {
+        "comment": "",
+        "key": "Context %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 592
+        }
+      }
+    ]
+  },
+  "version": 1
+}

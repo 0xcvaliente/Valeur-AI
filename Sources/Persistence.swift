@@ -88,6 +88,12 @@ final class ConversationRepository {
         try context.save()
     }
 
+    // In-memory only update for hot streaming path — no metadata recalculation, no disk write.
+    // Caller must follow up with updateMessage once streaming finishes.
+    func streamUpdateMessage(_ message: MessageRecord, content: String) throws {
+        message.content = try MessageEncryption.shared.encryptString(content)
+    }
+
     func retitleConversationIfNeeded(_ conversation: ConversationRecord) throws {
         guard conversation.decryptedTitle == "New Chat" else { return }
         if let firstUserMessage = conversation.messages.first(where: { $0.role == .user })?.decryptedContent {
@@ -114,7 +120,9 @@ final class ConversationRepository {
     ) throws {
         if let provider {
             conversation.provider = provider
-            conversation.modelIdentifier = provider.defaultModel
+            if modelIdentifier == nil {
+                conversation.modelIdentifier = provider.defaultModel
+            }
         }
 
         if let modelIdentifier {

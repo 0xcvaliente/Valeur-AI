@@ -21,11 +21,22 @@ enum MessageEncryptionError: Error, LocalizedError {
 final class MessageEncryption {
     static let shared = MessageEncryption()
 
-    private let key: SymmetricKey?
+    private var _key: SymmetricKey?
     private let initializationError: Error?
     private static let keychainAccount = "db-encryption-key-v1"
     private static let stringPrefix = "enc1:"
     private static let dataPrefix = Data("encd1:".utf8)
+
+    private var key: SymmetricKey? {
+        if let k = _key { return k }
+        // Keychain may have been unavailable at init — retry lazily
+        let keychain = KeychainService()
+        guard let stored = try? keychain.read(account: Self.keychainAccount),
+              let data = Data(base64Encoded: stored),
+              data.count == 32 else { return nil }
+        _key = SymmetricKey(data: data)
+        return _key
+    }
 
     private init() {
         let keychain = KeychainService()
@@ -33,7 +44,7 @@ final class MessageEncryption {
             if let stored = try keychain.read(account: Self.keychainAccount),
                let data = Data(base64Encoded: stored),
                data.count == 32 {
-                key = SymmetricKey(data: data)
+                _key = SymmetricKey(data: data)
                 initializationError = nil
                 return
             }
@@ -41,10 +52,10 @@ final class MessageEncryption {
             let fresh = SymmetricKey(size: .bits256)
             let keyData = fresh.withUnsafeBytes { Data($0) }
             try keychain.save(keyData.base64EncodedString(), for: Self.keychainAccount)
-            key = fresh
+            _key = fresh
             initializationError = nil
         } catch {
-            key = nil
+            _key = nil
             initializationError = error
         }
     }

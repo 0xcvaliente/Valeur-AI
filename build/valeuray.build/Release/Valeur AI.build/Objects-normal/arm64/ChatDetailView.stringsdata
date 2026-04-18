@@ -1,0 +1,88 @@
+{
+  "source": "/Users/valienteclifford/Documents/Github-Projects/valeurayAI/Sources/ChatDetailView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Generated in %@s",
+        "location": {
+          "startingColumn": 46,
+          "startingLine": 47
+        }
+      },
+      {
+        "comment": "",
+        "key": "Retry",
+        "location": {
+          "startingColumn": 48,
+          "startingLine": 50
+        }
+      },
+      {
+        "comment": "",
+        "key": "Providers",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 204
+        }
+      },
+      {
+        "comment": "",
+        "key": "%@ Models",
+        "location": {
+          "startingColumn": 21,
+          "startingLine": 220
+        }
+      },
+      {
+        "comment": "",
+        "key": "Version %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 310
+        }
+      },
+      {
+        "comment": "",
+        "key": "Context %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 313
+        }
+      },
+      {
+        "comment": "",
+        "key": "Version %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 339
+        }
+      },
+      {
+        "comment": "",
+        "key": "Context %@",
+        "location": {
+          "startingColumn": 22,
+          "startingLine": 345
+        }
+      },
+      {
+        "comment": "",
+        "key": "Can I help you with anything?",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 381
+        }
+      },
+      {
+        "comment": "",
+        "key": "usage",
+        "location": {
+          "startingColumn": 26,
+          "startingLine": 445
+        }
+      }
+    ]
+  },
+  "version": 1
+}

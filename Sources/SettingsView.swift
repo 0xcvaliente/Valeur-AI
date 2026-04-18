@@ -463,6 +463,7 @@ private struct SettingsAPIKeysPanel: View {
                                 apiKeys[provider] = newValue
                                 do {
                                     try settingsStore.setAPIKey(newValue, for: provider)
+                                    viewModel.invalidateServiceCache(for: provider)
                                     saveMessage = "API keys are stored securely in your macOS Keychain."
                                 } catch {
                                     saveMessage = error.localizedDescription

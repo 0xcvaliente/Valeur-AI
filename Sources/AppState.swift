@@ -121,6 +121,10 @@ final class ChatViewModel: ObservableObject {
         isSending = false
     }
 
+    func invalidateServiceCache(for provider: LLMProvider) {
+        appState.serviceFactory.invalidate(for: provider)
+    }
+
     func updateProvider(_ provider: LLMProvider) {
         guard let conversation = selectedConversation else { return }
         do {
@@ -351,21 +355,23 @@ final class ChatViewModel: ObservableObject {
                         currentModelStatus = "Reasoning and Searching..."
                     }
                 case .token(let token):
-                    if currentModelStatus != nil {
-                        currentModelStatus = nil
-                    }
+                    currentModelStatus = nil
                     responseText += token
-                    try repository.updateMessage(assistantMessage, content: responseText)
-                    load()
+                    try repository.streamUpdateMessage(assistantMessage, content: responseText)
                 case .status(let statusMsg):
                     currentModelStatus = statusMsg
                 case .finished:
                     currentModelStatus = nil
                 }
             }
+            if !responseText.isEmpty {
+                try repository.updateMessage(assistantMessage, content: responseText)
+            }
         } catch {
-            if error is CancellationError, responseText.isEmpty {
+            if responseText.isEmpty {
                 try? repository.deleteMessage(assistantMessage)
+            } else {
+                try? repository.updateMessage(assistantMessage, content: responseText)
             }
             throw error
         }

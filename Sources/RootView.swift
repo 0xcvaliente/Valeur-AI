@@ -6,10 +6,13 @@ struct RootView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: ChatViewModel?
+    @AppStorage("hasAcceptedTerms") private var hasAcceptedTerms = false
 
     var body: some View {
         Group {
-            if let viewModel {
+            if !hasAcceptedTerms {
+                TermsView(onAccept: { hasAcceptedTerms = true })
+            } else if let viewModel {
                 ChatWindowView(viewModel: viewModel, settingsStore: appState.settingsStore)
             } else {
                 ProgressView()
