@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -15,6 +16,7 @@ struct RootView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(WindowAppearanceSynchronizer(colorScheme: appState.settingsStore.appAppearance.colorScheme))
         .task {
             if viewModel == nil {
                 let repository = ConversationRepository(context: modelContext)
