@@ -16,12 +16,19 @@ struct ComposerView: View {
     @State private var placeholderIndex = 0
     private let compactTextInset: CGFloat = 8
     private let placeholderRotationTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
-    private let placeholderPrompts: [String] = [
+    private let chatPlaceholderPrompts: [String] = [
         "Ask me to summarize this conversation.",
         "Try: explain this like I am new to it.",
         "Write a draft reply, then make it shorter.",
         "Ask for code, notes, or a checklist.",
         "Tell me what to look for in this document."
+    ]
+    private let imagePlaceholderPrompts: [String] = [
+        "Create a cinematic concept poster with dramatic lighting.",
+        "Generate an isometric product render on a clean studio background.",
+        "Make a warm editorial travel scene with realistic film grain.",
+        "Design a bold album cover with geometric color blocking.",
+        "Illustrate a futuristic dashboard floating above a city skyline."
     ]
 
     var body: some View {
@@ -32,7 +39,12 @@ struct ComposerView: View {
             .onReceive(placeholderRotationTimer) { _ in
                 guard text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                 withAnimation(.easeInOut(duration: 0.25)) {
-                    placeholderIndex = (placeholderIndex + 1) % placeholderPrompts.count
+                    placeholderIndex = (placeholderIndex + 1) % currentPlaceholderPrompts.count
+                }
+            }
+            .onChange(of: viewModel.composerMode) { _, _ in
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    placeholderIndex = 0
                 }
             }
             .fileImporter(
@@ -70,6 +82,7 @@ struct ComposerView: View {
                                         .overlay(Text(url.pathExtension.uppercased()).font(AppTheme.uiFont(11, weight: .medium)))
                                 }
                                 Button {
+                                    url.stopAccessingSecurityScopedResource()
                                     draftAttachments.removeAll { $0 == url }
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
@@ -86,6 +99,14 @@ struct ComposerView: View {
                 .frame(height: 64)
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
+
+                if viewModel.composerMode == .image {
+                    Text("Attachments are not used for image generation yet. Remove them or switch back to chat mode.")
+                        .font(AppTheme.uiFont(11, weight: .medium))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 6)
+                }
             }
 
             ZStack(alignment: .topLeading) {
@@ -95,12 +116,12 @@ struct ComposerView: View {
                     minHeight: 38,
                     maxHeight: 120,
                     verticalInset: compactTextInset,
-                    onSubmit: onSubmit
+                    onSubmit: handlePrimaryAction
                 )
                 .frame(height: textViewHeight)
 
                 if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(placeholderPrompts[placeholderIndex])
+                    Text(currentPlaceholderPrompts[placeholderIndex])
                         .font(AppTheme.uiFont(16, weight: .regular))
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(.top, compactTextInset + 1)
@@ -118,39 +139,45 @@ struct ComposerView: View {
             .padding(.bottom, 2)
 
             HStack(spacing: 6) {
-                Menu {
-                    Button {
-                        presentAttachmentImporter(.photos)
-                    } label: {
-                        Label("Add Photos", systemImage: "photo.on.rectangle.angled")
-                    }
+                modeSelector
 
-                    Button {
-                        presentAttachmentImporter(.files)
-                    } label: {
-                        Label("Add Files", systemImage: "folder")
-                    }
-                } label: {
-                    ComposerCircleButton(icon: "plus")
-                }
-                .menuStyle(.borderlessButton)
+                if viewModel.composerMode == .chat {
+                    Menu {
+                        Button {
+                            presentAttachmentImporter(.photos)
+                        } label: {
+                            Label("Add Photos", systemImage: "photo.on.rectangle.angled")
+                        }
 
-                Button { settingsStore.webSearchEnabled.toggle() } label: {
-                    ComposerChipButton(
-                        icon: "globe",
-                        label: settingsStore.webSearchEnabled ? "Web Enabled" : "Web",
-                        isActive: settingsStore.webSearchEnabled
+                        Button {
+                            presentAttachmentImporter(.pdf)
+                        } label: {
+                            Label("Add PDF", systemImage: "doc.richtext")
+                        }
+                    } label: {
+                        ComposerCircleButton(icon: "plus")
+                    }
+                    .menuStyle(.borderlessButton)
+
+                    Button { settingsStore.webSearchEnabled.toggle() } label: {
+                        ComposerChipButton(
+                            icon: "globe",
+                            label: settingsStore.webSearchEnabled ? "Web Enabled" : "Web",
+                            isActive: settingsStore.webSearchEnabled
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    TokenContextBadge(
+                        usageFraction: viewModel.tokenUsageFraction,
+                        inputTokenCount: viewModel.inputTokenCount,
+                        outputTokenCount: viewModel.outputTokenCount,
+                        totalTokenCount: viewModel.estimatedTokenCount,
+                        contextTokenLimit: viewModel.contextTokenLimit
                     )
+                } else {
+                    imageSizeSelector
                 }
-                .buttonStyle(.plain)
-
-                TokenContextBadge(
-                    usageFraction: viewModel.tokenUsageFraction,
-                    inputTokenCount: viewModel.inputTokenCount,
-                    outputTokenCount: viewModel.outputTokenCount,
-                    totalTokenCount: viewModel.estimatedTokenCount,
-                    contextTokenLimit: viewModel.contextTokenLimit
-                )
 
                 Button {
                     startDictation()
@@ -159,19 +186,15 @@ struct ComposerView: View {
                 }
                 .buttonStyle(.plain)
 
-                personalitySelector
+                if viewModel.composerMode == .chat {
+                    personalitySelector
+                }
 
                 llmSelector
 
                 Spacer()
 
-                Button {
-                    if isSending {
-                        viewModel.cancelStreaming()
-                    } else {
-                        onSubmit()
-                    }
-                } label: {
+                Button(action: handlePrimaryAction) {
                     ComposerCircleButton(
                         icon: isSending ? "stop.fill" : "arrow.up",
                         isProminent: canSend || isSending,
@@ -192,12 +215,31 @@ struct ComposerView: View {
     }
 
     private var canSend: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftAttachments.isEmpty
+        switch viewModel.composerMode {
+        case .chat:
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draftAttachments.isEmpty
+        case .image:
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var currentPlaceholderPrompts: [String] {
+        viewModel.composerMode == .image ? imagePlaceholderPrompts : chatPlaceholderPrompts
     }
 
     private func presentAttachmentImporter(_ kind: AttachmentImportKind) {
         attachmentImportKind = kind
         isImportingAttachment = true
+    }
+
+    private func handlePrimaryAction() {
+        if isSending {
+            viewModel.cancelStreaming()
+            return
+        }
+
+        guard canSend else { return }
+        onSubmit()
     }
 
     private func startDictation() {
@@ -238,6 +280,55 @@ struct ComposerView: View {
 
     private var llmSelector: some View {
         LLMSelectorMenu(viewModel: viewModel, settingsStore: settingsStore, style: .inline)
+    }
+
+    private var modeSelector: some View {
+        HStack(spacing: 6) {
+            modeButton(.chat, isDisabled: false)
+            modeButton(.image, isDisabled: !viewModel.canUseImageGeneration)
+        }
+    }
+
+    private func modeButton(_ mode: ComposerMode, isDisabled: Bool) -> some View {
+        Button {
+            viewModel.composerMode = mode
+        } label: {
+            ComposerChipButton(
+                icon: mode.icon,
+                label: mode.title,
+                isActive: viewModel.composerMode == mode
+            )
+            .opacity(isDisabled ? 0.5 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .help(mode == .image && isDisabled ? "Image generation is currently available only when using an OpenAI model with image generation support." : "")
+    }
+
+    private var imageSizeSelector: some View {
+        Menu {
+            ForEach(ImageGenerationSize.allCases) { size in
+                Button {
+                    viewModel.imageGenerationSize = size
+                } label: {
+                    HStack {
+                        Label(size.title, systemImage: size.icon)
+                        if viewModel.imageGenerationSize == size {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            ComposerChipButton(
+                icon: viewModel.imageGenerationSize.icon,
+                label: viewModel.imageGenerationSize.title,
+                isActive: true
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .help("Generated image size")
     }
 
 }
@@ -327,14 +418,14 @@ private struct TokenContextTooltip: View {
 
 private enum AttachmentImportKind {
     case photos
-    case files
+    case pdf
 
     var allowedContentTypes: [UTType] {
         switch self {
         case .photos:
             return [.image]
-        case .files:
-            return [.item]
+        case .pdf:
+            return [.pdf]
         }
     }
 }

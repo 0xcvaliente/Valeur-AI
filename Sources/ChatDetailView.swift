@@ -47,7 +47,7 @@ struct ChatDetailView: View {
                                         Text("Generated in \(String(format: "%.1f", duration))s")
                                             .font(AppTheme.monoFont(11, weight: .medium))
                                             .foregroundStyle(AppTheme.textSecondary.opacity(0.6))
-                                        Button("Retry", action: viewModel.retryLastResponse)
+                                        Button(viewModel.retryActionLabel, action: viewModel.retryLastResponse)
                                             .disabled(!viewModel.canRetry)
                                             .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
                                             .font(AppTheme.uiFont(11, weight: .medium))

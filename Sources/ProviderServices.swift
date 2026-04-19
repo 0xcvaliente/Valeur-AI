@@ -29,6 +29,20 @@ struct OpenAIService: LLMService {
         }
     }
 
+    func generateImage(for request: ImageGenerationRequest) async throws -> ImageGenerationResponse {
+        let json = try await jsonRequest(
+            provider: provider,
+            endpoint: URL(string: "https://api.openai.com/v1/images/generations")!,
+            method: "POST",
+            headers: [
+                "Authorization": "Bearer \(apiKey)",
+                "Content-Type": "application/json"
+            ],
+            body: try openAIImageBody(for: request)
+        )
+        return try await parseOpenAIImageResponse(from: json)
+    }
+
     private func openAIBody(for request: ChatRequest) throws -> Data {
         var body: [String: Any] = [
             "model": request.model,
@@ -77,6 +91,15 @@ struct OpenAIService: LLMService {
                 "content": content
             ]
         }
+    }
+
+    private func openAIImageBody(for request: ImageGenerationRequest) throws -> Data {
+        try jsonBody([
+            "model": request.model,
+            "prompt": request.prompt,
+            "size": request.size.rawValue,
+            "response_format": "b64_json"
+        ], provider: provider)
     }
 
     private func parseOpenAIEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
@@ -135,6 +158,38 @@ struct OpenAIService: LLMService {
         }
 
         return [.token(text)]
+    }
+
+    private func parseOpenAIImageResponse(from json: [String: Any]) async throws -> ImageGenerationResponse {
+        guard let items = json["data"] as? [[String: Any]], !items.isEmpty else {
+            throw ServiceError.invalidResponse
+        }
+
+        var attachments: [MessageAttachment] = []
+        var revisedPrompt: String?
+
+        for item in items {
+            if revisedPrompt == nil {
+                revisedPrompt = item["revised_prompt"] as? String
+            }
+
+            if let base64 = item["b64_json"] as? String,
+               let data = Data(base64Encoded: base64), !data.isEmpty {
+                attachments.append(MessageAttachment(data: data, mimeType: "image/png"))
+                continue
+            }
+
+            if let urlString = item["url"] as? String,
+               let url = URL(string: urlString) {
+                attachments.append(try await downloadImageAttachment(from: url))
+            }
+        }
+
+        guard !attachments.isEmpty else {
+            throw ServiceError.invalidResponse
+        }
+
+        return ImageGenerationResponse(images: attachments, revisedPrompt: revisedPrompt)
     }
 }
 
@@ -349,15 +404,7 @@ private func streamRequest(
     AsyncThrowingStream { continuation in
         let task = Task {
             do {
-                if let apiKey = headers["Authorization"], apiKey.hasSuffix("Bearer ") {
-                    throw ServiceError.missingAPIKey("OpenAI")
-                }
-                if let apiKey = headers["x-api-key"], apiKey.isEmpty {
-                    throw ServiceError.missingAPIKey("Anthropic")
-                }
-                if let apiKey = headers["X-Goog-Api-Key"], apiKey.isEmpty {
-                    throw ServiceError.missingAPIKey("Google Gemini")
-                }
+                try validateAuthenticationHeaders(headers)
 
                 var request = URLRequest(url: endpoint)
                 request.httpMethod = method
@@ -429,6 +476,75 @@ private func streamRequest(
         continuation.onTermination = { _ in
             task.cancel()
         }
+    }
+}
+
+private func jsonRequest(
+    provider: LLMProvider,
+    endpoint: URL,
+    method: String,
+    headers: [String: String],
+    body: Data
+) async throws -> [String: Any] {
+    try validateAuthenticationHeaders(headers)
+
+    var request = URLRequest(url: endpoint)
+    request.httpMethod = method
+    request.httpBody = body
+    request.timeoutInterval = 120
+    headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+        throw ServiceError.invalidResponse
+    }
+
+    let responseBody = String(decoding: data, as: UTF8.self)
+    guard 200..<300 ~= http.statusCode else {
+        throw ServiceError.httpError(http.statusCode, responseBody)
+    }
+
+    guard !responseBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        throw ServiceError.invalidResponse
+    }
+
+    return try streamJSONObject(from: responseBody, provider: provider)
+}
+
+private func validateAuthenticationHeaders(_ headers: [String: String]) throws {
+    if let apiKey = headers["Authorization"], apiKey.hasSuffix("Bearer ") {
+        throw ServiceError.missingAPIKey("OpenAI")
+    }
+    if let apiKey = headers["x-api-key"], apiKey.isEmpty {
+        throw ServiceError.missingAPIKey("Anthropic")
+    }
+    if let apiKey = headers["X-Goog-Api-Key"], apiKey.isEmpty {
+        throw ServiceError.missingAPIKey("Google Gemini")
+    }
+}
+
+private func downloadImageAttachment(from url: URL) async throws -> MessageAttachment {
+    let (data, response) = try await URLSession.shared.data(from: url)
+    guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+        throw ServiceError.invalidResponse
+    }
+
+    let mimeType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased().split(separator: ";").first.map(String.init)
+        ?? inferredImageMimeType(from: url)
+    return MessageAttachment(data: data, mimeType: mimeType)
+}
+
+private func inferredImageMimeType(from url: URL) -> String {
+    switch url.pathExtension.lowercased() {
+    case "jpg", "jpeg":
+        return "image/jpeg"
+    case "webp":
+        return "image/webp"
+    case "gif":
+        return "image/gif"
+    default:
+        return "image/png"
     }
 }
 

@@ -39,6 +39,37 @@ struct ChatWindowView: View {
                         .help("New Chat")
                     }
                 }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button("Conversation as PDF") {
+                            Task { await viewModel.exportConversationPDF() }
+                        }
+                        .disabled(!viewModel.canExportConversationDocument)
+
+                        Button("Conversation as HTML") {
+                            Task { await viewModel.exportConversationHTML() }
+                        }
+                        .disabled(!viewModel.canExportConversationDocument)
+
+                        Divider()
+
+                        Button("Latest Table as CSV") {
+                            Task { await viewModel.exportLatestTableCSV() }
+                        }
+                        .disabled(!viewModel.canExportConversationCSV)
+
+                        Button("Latest Visual as PNG") {
+                            Task { await viewModel.exportLatestVisualPNG() }
+                        }
+                        .disabled(!viewModel.canExportConversationPNG)
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(AppTheme.uiFont(15, weight: .semibold))
+                    }
+                    .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true, showBorder: false, tight: true, showBackground: false))
+                    .help("Export")
+                }
             }
             .navigationTitle("")
             .preferredColorScheme(settingsStore.appAppearance.colorScheme)
@@ -66,6 +97,18 @@ struct ChatWindowView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .openSettingsRequested)) { _ in
                 showSettings = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportConversationPDFRequested)) { _ in
+                Task { await viewModel.exportConversationPDF() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportConversationHTMLRequested)) { _ in
+                Task { await viewModel.exportConversationHTML() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportLatestTableCSVRequested)) { _ in
+                Task { await viewModel.exportLatestTableCSV() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportLatestVisualPNGRequested)) { _ in
+                Task { await viewModel.exportLatestVisualPNG() }
             }
     }
 

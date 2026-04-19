@@ -3,6 +3,14 @@ import Foundation
 protocol LLMService {
     var provider: LLMProvider { get }
     func streamResponse(for request: ChatRequest) -> AsyncThrowingStream<LLMStreamEvent, Error>
+    func generateImage(for request: ImageGenerationRequest) async throws -> ImageGenerationResponse
+}
+
+extension LLMService {
+    func generateImage(for request: ImageGenerationRequest) async throws -> ImageGenerationResponse {
+        _ = request
+        throw ServiceError.providerMessage("Image generation is not available for \(provider.displayName) yet.")
+    }
 }
 
 enum ServiceError: LocalizedError {

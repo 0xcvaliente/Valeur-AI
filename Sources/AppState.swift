@@ -27,9 +27,13 @@ final class AppState: ObservableObject {
 @MainActor
 final class ChatViewModel: ObservableObject {
     @Published private(set) var conversations: [ConversationRecord] = []
-    @Published var selectedConversation: ConversationRecord?
+    @Published var selectedConversation: ConversationRecord? {
+        didSet { normalizeComposerModeIfNeeded() }
+    }
     @Published var composerText = ""
     @Published var draftAttachments: [URL] = []
+    @Published var composerMode: ComposerMode = .chat
+    @Published var imageGenerationSize: ImageGenerationSize = .square
     @Published var isSending = false
     @Published var errorMessage: String?
     @Published var currentModelStatus: String?
@@ -53,6 +57,7 @@ final class ChatViewModel: ObservableObject {
             } else if let id = selectedConversation?.id {
                 selectedConversation = conversations.first(where: { $0.id == id })
             }
+            normalizeComposerModeIfNeeded()
         } catch {
             errorMessage = displayMessage(for: error)
         }
@@ -96,13 +101,33 @@ final class ChatViewModel: ObservableObject {
     }
 
     func sendCurrentMessage() {
+        if isSending {
+            cancelStreaming()
+            return
+        }
+
         let trimmed = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draftAttachments
-        guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        if composerMode == .image && !canUseImageGeneration {
+            composerMode = .chat
+            errorMessage = "Image generation is not available for the selected provider or model."
+            return
+        }
+        switch composerMode {
+        case .chat:
+            guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+        case .image:
+            guard !trimmed.isEmpty else { return }
+        }
 
         activeStreamTask?.cancel()
         activeStreamTask = Task { [weak self] in
-            await self?.sendMessage(trimmed, attachments: attachments)
+            switch self?.composerMode {
+            case .image:
+                await self?.generateImage(prompt: trimmed, attachments: attachments)
+            default:
+                await self?.sendMessage(trimmed, attachments: attachments)
+            }
         }
     }
 
@@ -111,7 +136,7 @@ final class ChatViewModel: ObservableObject {
 
         activeStreamTask?.cancel()
         activeStreamTask = Task { [weak self] in
-            await self?.retryResponse(in: conversation)
+            await self?.retryLastAssistantOutput(in: conversation)
         }
     }
 
@@ -123,6 +148,22 @@ final class ChatViewModel: ObservableObject {
 
     func invalidateServiceCache(for provider: LLMProvider) {
         appState.serviceFactory.invalidate(for: provider)
+    }
+
+    func exportConversationHTML() async {
+        await exportSelectedConversation(using: { try ConversationExportService.exportConversationHTML($0) })
+    }
+
+    func exportConversationPDF() async {
+        await exportSelectedConversation(using: { try await ConversationExportService.exportConversationPDF($0) })
+    }
+
+    func exportLatestTableCSV() async {
+        await exportSelectedConversation(using: { try ConversationExportService.exportLatestTableCSV($0) })
+    }
+
+    func exportLatestVisualPNG() async {
+        await exportSelectedConversation(using: { try await ConversationExportService.exportLatestVisualPNG($0) })
     }
 
     func updateProvider(_ provider: LLMProvider) {
@@ -188,8 +229,55 @@ final class ChatViewModel: ObservableObject {
     }
 
     var canRetry: Bool {
+        guard let selectedConversation,
+              let lastAssistantMessage = lastAssistantMessage(in: selectedConversation) else {
+            return false
+        }
+
+        if messageHasImageAttachment(lastAssistantMessage) {
+            return canUseImageGeneration
+        }
+
+        return true
+    }
+
+    var retryActionLabel: String {
+        messageHasImageAttachment(lastAssistantMessage(in: selectedConversation)) ? "Regenerate Image" : "Retry"
+    }
+
+    var canExportConversationDocument: Bool {
         guard let selectedConversation else { return false }
-        return selectedConversation.messages.contains(where: { $0.role == .assistant })
+        return !selectedConversation.messages.isEmpty
+    }
+
+    var canExportConversationCSV: Bool {
+        ConversationExportService.hasTable(in: selectedConversation)
+    }
+
+    var canExportConversationPNG: Bool {
+        ConversationExportService.hasVisual(in: selectedConversation)
+    }
+
+    var activeProvider: LLMProvider {
+        selectedConversation?.provider ?? appState.settingsStore.defaultProvider
+    }
+
+    var activeModelIdentifier: String {
+        let provider = activeProvider
+        let modelIdentifier = selectedConversation?.modelIdentifier ?? appState.settingsStore.selectedModel(for: provider)
+        return provider.normalizedModelIdentifier(modelIdentifier)
+    }
+
+    var activeModelCapabilities: ModelCapabilities {
+        activeProvider.capabilities(for: activeModelIdentifier)
+    }
+
+    var canUseImageGeneration: Bool {
+        activeModelCapabilities.supportsImageGeneration
+    }
+
+    var imageGenerationModelIdentifier: String? {
+        activeModelCapabilities.imageGenerationModelIdentifier
     }
 
     var contextTokenLimit: Int {
@@ -241,20 +329,11 @@ final class ChatViewModel: ObservableObject {
 
     private func sendMessage(_ content: String, attachments: [URL]) async {
         let conversation: ConversationRecord
-        if let selectedConversation {
-            conversation = selectedConversation
-        } else {
-            do {
-                let provider = appState.settingsStore.defaultProvider
-                conversation = try repository.createConversation(
-                    provider: provider,
-                    modelIdentifier: appState.settingsStore.selectedModel(for: provider)
-                )
-                selectedConversation = conversation
-            } catch {
-                errorMessage = displayMessage(for: error)
-                return
-            }
+        do {
+            conversation = try resolveConversationForSending()
+        } catch {
+            errorMessage = displayMessage(for: error)
+            return
         }
 
         isSending = true
@@ -264,25 +343,9 @@ final class ChatViewModel: ObservableObject {
         lastGenerationDuration = nil
 
         do {
-            var msgAttachments: [MessageAttachment] = []
-            var attachmentError: Error?
-            for url in attachments {
-                defer { url.stopAccessingSecurityScopedResource() }
-                guard attachmentError == nil else { continue }
-                if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
-                   let fileSize = resourceValues.fileSize,
-                   fileSize > 20 * 1024 * 1024 {
-                    attachmentError = ServiceError.providerMessage("Attachment exceeds the 20 MB limit.")
-                    continue
-                }
-                let mime = attachmentMimeType(for: url)
-                if let data = try? Data(contentsOf: url) {
-                    msgAttachments.append(MessageAttachment(data: data, mimeType: mime))
-                }
-            }
-            if let attachmentError { throw attachmentError }
-            
+            let msgAttachments = try buildMessageAttachments(from: attachments)
             _ = try repository.appendMessage(role: .user, content: content, attachments: msgAttachments, to: conversation)
+            releaseDraftAttachments(attachments)
             composerText = ""
             draftAttachments = []
             try await generateAssistantReply(in: conversation)
@@ -296,21 +359,32 @@ final class ChatViewModel: ObservableObject {
         finishStreaming()
     }
 
-    private func retryResponse(in conversation: ConversationRecord) async {
+    private func generateImage(prompt: String, attachments: [URL]) async {
+        let conversation: ConversationRecord
+        do {
+            conversation = try resolveConversationForSending()
+        } catch {
+            errorMessage = displayMessage(for: error)
+            return
+        }
+
         isSending = true
         errorMessage = nil
-        currentModelStatus = nil
+        currentModelStatus = "Generating image..."
         generationStartTime = Date()
         lastGenerationDuration = nil
 
         do {
-            let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
-            if let last = sortedMessages.last, last.role == .assistant {
-                try repository.deleteMessage(last)
+            if !attachments.isEmpty {
+                throw ServiceError.providerMessage("Image generation currently supports text prompts only. Remove attachments and try again.")
             }
-            try await generateAssistantReply(in: conversation)
+
+            _ = try repository.appendMessage(role: .user, content: prompt, to: conversation)
+            composerText = ""
+            try await generateAssistantImage(in: conversation, prompt: prompt)
+            try repository.retitleConversationIfNeeded(conversation)
         } catch is CancellationError {
-            errorMessage = "Response stopped."
+            errorMessage = "Image generation stopped."
         } catch {
             errorMessage = displayMessage(for: error)
         }
@@ -318,13 +392,95 @@ final class ChatViewModel: ObservableObject {
         finishStreaming()
     }
 
-    private func generateAssistantReply(in conversation: ConversationRecord) async throws {
+    private func retryLastAssistantOutput(in conversation: ConversationRecord) async {
+        isSending = true
+        errorMessage = nil
+        currentModelStatus = nil
+        generationStartTime = Date()
+        lastGenerationDuration = nil
+
+        do {
+            guard let lastAssistantMessage = lastAssistantMessage(in: conversation) else {
+                finishStreaming()
+                return
+            }
+
+            if messageHasImageAttachment(lastAssistantMessage) {
+                guard let prompt = promptForImageRetry(in: conversation, replacing: lastAssistantMessage) else {
+                    throw ServiceError.providerMessage("Could not find the prompt used to generate the last image.")
+                }
+                try await generateAssistantImage(
+                    in: conversation,
+                    prompt: prompt,
+                    replacing: lastAssistantMessage
+                )
+            } else {
+                try await generateAssistantReply(
+                    in: conversation,
+                    replacing: lastAssistantMessage,
+                    preservePartialOnFailure: false
+                )
+            }
+        } catch is CancellationError {
+            errorMessage = messageHasImageAttachment(lastAssistantMessage(in: conversation)) ? "Image generation stopped." : "Response stopped."
+        } catch {
+            errorMessage = displayMessage(for: error)
+        }
+
+        finishStreaming()
+    }
+
+    private func generateAssistantImage(
+        in conversation: ConversationRecord,
+        prompt: String,
+        replacing replacedMessage: MessageRecord? = nil
+    ) async throws {
+        let provider = conversation.provider
+        let model = provider.normalizedModelIdentifier(conversation.modelIdentifier)
+        if model != conversation.modelIdentifier {
+            try repository.updateConversation(conversation, modelIdentifier: model)
+            load()
+        }
+
+        let capabilities = provider.capabilities(for: model)
+        guard let imageModel = capabilities.imageGenerationModelIdentifier else {
+            throw ServiceError.providerMessage("Image generation is not available for the selected \(provider.displayName) model.")
+        }
+
+        currentModelStatus = "Generating image..."
+        let service = appState.serviceFactory.makeService(provider: provider)
+        let response = try await service.generateImage(
+            for: ImageGenerationRequest(
+                prompt: prompt,
+                model: imageModel,
+                size: imageGenerationSize
+            )
+        )
+
+        _ = try repository.appendMessage(
+            role: .assistant,
+            content: imageGenerationCaption(for: response, originalPrompt: prompt),
+            attachments: response.images,
+            to: conversation
+        )
+
+        if let replacedMessage {
+            try repository.deleteMessage(replacedMessage)
+        }
+    }
+
+    private func generateAssistantReply(
+        in conversation: ConversationRecord,
+        replacing replacedMessage: MessageRecord? = nil,
+        preservePartialOnFailure: Bool = true
+    ) async throws {
         let systemPrompt = appState.settingsStore.composedSystemPrompt(
             conversationSystemPrompt: conversation.resolvedSystemPrompt
         )
         let outboundMessages = trimmedOutboundMessages(
             for: conversation,
-            systemPrompt: systemPrompt
+            systemPrompt: systemPrompt,
+            excludingMessageID: replacedMessage?.id
         )
 
         let assistantMessage = try repository.appendMessage(role: .assistant, content: "", to: conversation)
@@ -336,11 +492,12 @@ final class ChatViewModel: ObservableObject {
             try repository.updateConversation(conversation, modelIdentifier: model)
             load()
         }
+        let capabilities = provider.capabilities(for: model)
         let request = ChatRequest(
             messages: outboundMessages,
             systemPrompt: systemPrompt,
             model: model,
-            allowsWebSearch: appState.settingsStore.webSearchEnabled
+            allowsWebSearch: appState.settingsStore.webSearchEnabled && capabilities.supportsWebSearch
         )
 
         let service = appState.serviceFactory.makeService(provider: provider)
@@ -366,9 +523,12 @@ final class ChatViewModel: ObservableObject {
             }
             if !responseText.isEmpty {
                 try repository.updateMessage(assistantMessage, content: responseText)
+                if let replacedMessage {
+                    try repository.deleteMessage(replacedMessage)
+                }
             }
         } catch {
-            if responseText.isEmpty {
+            if responseText.isEmpty || !preservePartialOnFailure {
                 try? repository.deleteMessage(assistantMessage)
             } else {
                 try? repository.updateMessage(assistantMessage, content: responseText)
@@ -379,9 +539,15 @@ final class ChatViewModel: ObservableObject {
 
     private func trimmedOutboundMessages(
         for conversation: ConversationRecord,
-        systemPrompt: String?
+        systemPrompt: String?,
+        excludingMessageID: UUID? = nil
     ) -> [ChatMessagePayload] {
-        let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
+        let sortedMessages = conversation.messages
+            .filter { message in
+                guard let excludingMessageID else { return true }
+                return message.id != excludingMessageID
+            }
+            .sorted(by: { $0.createdAt < $1.createdAt })
         let budget = contextTokenLimit
         let promptTokenCount = TokenFormatting.estimatedTokenCount(for: systemPrompt ?? "")
         let messageBudget = max(budget - promptTokenCount, 1)
@@ -435,6 +601,141 @@ final class ChatViewModel: ObservableObject {
         generationStartTime = nil
         activeStreamTask = nil
         load()
+    }
+
+    private func resolveConversationForSending() throws -> ConversationRecord {
+        if let selectedConversation {
+            return selectedConversation
+        }
+
+        let provider = appState.settingsStore.defaultProvider
+        let conversation = try repository.createConversation(
+            provider: provider,
+            modelIdentifier: appState.settingsStore.selectedModel(for: provider)
+        )
+        selectedConversation = conversation
+        load()
+        return conversation
+    }
+
+    private func exportSelectedConversation(
+        using exporter: (ConversationRecord) async throws -> ExportedFile
+    ) async {
+        guard let selectedConversation else {
+            errorMessage = ConversationExportError.noConversation.errorDescription
+            return
+        }
+
+        do {
+            let exportedFile = try await exporter(selectedConversation)
+            try save(exportedFile)
+        } catch {
+            errorMessage = displayMessage(for: error)
+        }
+    }
+
+    private func save(_ exportedFile: ExportedFile) throws {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = exportedFile.suggestedFilename
+        panel.allowedContentTypes = [exportedFile.contentType]
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else {
+            return
+        }
+
+        try exportedFile.data.write(to: destinationURL, options: .atomic)
+    }
+
+    private func normalizeComposerModeIfNeeded() {
+        if composerMode == .image && !canUseImageGeneration {
+            composerMode = .chat
+        }
+    }
+
+    private func lastAssistantMessage(in conversation: ConversationRecord?) -> MessageRecord? {
+        guard let conversation else { return nil }
+        return conversation.messages
+            .sorted(by: { $0.createdAt < $1.createdAt })
+            .last(where: { $0.role == .assistant })
+    }
+
+    private func messageHasImageAttachment(_ message: MessageRecord?) -> Bool {
+        guard let message,
+              let data = message.decryptedAttachmentsData,
+              let attachments = try? JSONDecoder().decode([MessageAttachment].self, from: data) else {
+            return false
+        }
+        return attachments.contains(where: { $0.mimeType.hasPrefix("image/") })
+    }
+
+    private func promptForImageRetry(in conversation: ConversationRecord, replacing message: MessageRecord) -> String? {
+        let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
+        guard let messageIndex = sortedMessages.firstIndex(where: { $0.id == message.id }) else {
+            return nil
+        }
+
+        guard let promptMessage = sortedMessages[..<messageIndex]
+            .reversed()
+            .first(where: { $0.role == .user }) else {
+            return nil
+        }
+
+        let prompt = promptMessage.decryptedContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        return prompt.isEmpty ? nil : prompt
+    }
+
+    private func imageGenerationCaption(for response: ImageGenerationResponse, originalPrompt: String) -> String {
+        let revisedPrompt = response.revisedPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedOriginalPrompt = originalPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !revisedPrompt.isEmpty, revisedPrompt != trimmedOriginalPrompt {
+            return "> Revised prompt\n\n\(revisedPrompt)"
+        }
+        return ""
+    }
+
+    private func buildMessageAttachments(from urls: [URL]) throws -> [MessageAttachment] {
+        try urls.map { url in
+            let mimeType = try supportedAttachmentMimeType(for: url)
+
+            do {
+                let data = try Data(contentsOf: url)
+                return MessageAttachment(data: data, mimeType: mimeType)
+            } catch {
+                throw ServiceError.providerMessage(
+                    "Could not read \(url.lastPathComponent). Remove it and attach it again."
+                )
+            }
+        }
+    }
+
+    private func supportedAttachmentMimeType(for url: URL) throws -> String {
+        let resourceValues = try url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
+        if let fileSize = resourceValues.fileSize, fileSize > 20 * 1024 * 1024 {
+            throw ServiceError.providerMessage("Attachment exceeds the 20 MB limit.")
+        }
+
+        if let contentType = resourceValues.contentType {
+            if contentType.conforms(to: .pdf) {
+                return "application/pdf"
+            }
+
+            if contentType.conforms(to: .image) {
+                return contentType.preferredMIMEType ?? attachmentMimeType(for: url)
+            }
+        }
+
+        let fallbackMimeType = attachmentMimeType(for: url)
+        if fallbackMimeType == "application/pdf" || fallbackMimeType.hasPrefix("image/") {
+            return fallbackMimeType
+        }
+
+        throw ServiceError.providerMessage("Only image and PDF attachments are supported right now.")
+    }
+
+    private func releaseDraftAttachments(_ attachments: [URL]) {
+        for url in attachments {
+            url.stopAccessingSecurityScopedResource()
+        }
     }
 
     private func attachmentMimeType(for url: URL) -> String {

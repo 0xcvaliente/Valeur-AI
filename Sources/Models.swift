@@ -40,22 +40,22 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .openAI:
             [
-                LLMModelPreset(provider: self, title: "Reasoning", subtitle: "Best for complex work", modelIdentifier: "gpt-5.4", versionLabel: "gpt-5.4", contextWindowTokens: 1_000_000),
-                LLMModelPreset(provider: self, title: "Balanced", subtitle: "Fast and cost-aware", modelIdentifier: "gpt-5.4-mini", versionLabel: "gpt-5.4-mini", contextWindowTokens: 400_000),
-                LLMModelPreset(provider: self, title: "Lite", subtitle: "Lowest latency and cost", modelIdentifier: "gpt-5.4-nano", versionLabel: "gpt-5.4-nano", contextWindowTokens: 400_000),
-                LLMModelPreset(provider: self, title: "Pro", subtitle: "More compute for harder requests", modelIdentifier: "gpt-5.4-pro", versionLabel: "gpt-5.4-pro", contextWindowTokens: 1_050_000)
+                LLMModelPreset(provider: self, title: "Reasoning", subtitle: "Best for complex work", modelIdentifier: "gpt-5.4", versionLabel: "gpt-5.4", contextWindowTokens: 1_000_000, capabilities: .openAIChat),
+                LLMModelPreset(provider: self, title: "Balanced", subtitle: "Fast and cost-aware", modelIdentifier: "gpt-5.4-mini", versionLabel: "gpt-5.4-mini", contextWindowTokens: 400_000, capabilities: .openAIChat),
+                LLMModelPreset(provider: self, title: "Lite", subtitle: "Lowest latency and cost", modelIdentifier: "gpt-5.4-nano", versionLabel: "gpt-5.4-nano", contextWindowTokens: 400_000, capabilities: .openAIChat),
+                LLMModelPreset(provider: self, title: "Pro", subtitle: "More compute for harder requests", modelIdentifier: "gpt-5.4-pro", versionLabel: "gpt-5.4-pro", contextWindowTokens: 1_050_000, capabilities: .openAIChat)
             ]
         case .anthropic:
             [
-                LLMModelPreset(provider: self, title: "Opus", subtitle: "Most capable for complex tasks", modelIdentifier: "claude-opus-4-7", versionLabel: "4.7", contextWindowTokens: 1_000_000),
-                LLMModelPreset(provider: self, title: "Sonnet", subtitle: "Best balance of speed and quality", modelIdentifier: "claude-sonnet-4-6", versionLabel: "4.6", contextWindowTokens: 1_000_000),
-                LLMModelPreset(provider: self, title: "Haiku", subtitle: "Fastest option for lightweight tasks", modelIdentifier: "claude-haiku-4-5", versionLabel: "4.5", contextWindowTokens: 200_000)
+                LLMModelPreset(provider: self, title: "Opus", subtitle: "Most capable for complex tasks", modelIdentifier: "claude-opus-4-7", versionLabel: "4.7", contextWindowTokens: 1_000_000, capabilities: .anthropicChat),
+                LLMModelPreset(provider: self, title: "Sonnet", subtitle: "Best balance of speed and quality", modelIdentifier: "claude-sonnet-4-6", versionLabel: "4.6", contextWindowTokens: 1_000_000, capabilities: .anthropicChat),
+                LLMModelPreset(provider: self, title: "Haiku", subtitle: "Fastest option for lightweight tasks", modelIdentifier: "claude-haiku-4-5", versionLabel: "4.5", contextWindowTokens: 200_000, capabilities: .anthropicChat)
             ]
         case .gemini:
             [
-                LLMModelPreset(provider: self, title: "Pro", subtitle: "Best for complex reasoning", modelIdentifier: "gemini-2.5-pro", versionLabel: "2.5", contextWindowTokens: 1_048_576),
-                LLMModelPreset(provider: self, title: "Flash", subtitle: "Best price-performance balance", modelIdentifier: "gemini-2.5-flash", versionLabel: "2.5", contextWindowTokens: 1_048_576),
-                LLMModelPreset(provider: self, title: "Flash-Lite", subtitle: "Fastest and most cost efficient", modelIdentifier: "gemini-2.5-flash-lite", versionLabel: "2.5", contextWindowTokens: 1_048_576)
+                LLMModelPreset(provider: self, title: "Pro", subtitle: "Best for complex reasoning", modelIdentifier: "gemini-2.5-pro", versionLabel: "2.5", contextWindowTokens: 1_048_576, capabilities: .geminiChat),
+                LLMModelPreset(provider: self, title: "Flash", subtitle: "Best price-performance balance", modelIdentifier: "gemini-2.5-flash", versionLabel: "2.5", contextWindowTokens: 1_048_576, capabilities: .geminiChat),
+                LLMModelPreset(provider: self, title: "Flash-Lite", subtitle: "Fastest and most cost efficient", modelIdentifier: "gemini-2.5-flash-lite", versionLabel: "2.5", contextWindowTokens: 1_048_576, capabilities: .geminiChat)
             ]
         }
     }
@@ -71,6 +71,14 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
 
     func contextWindowTokens(for modelIdentifier: String) -> Int {
         preset(for: modelIdentifier)?.contextWindowTokens ?? defaultContextWindowTokens
+    }
+
+    func capabilities(for modelIdentifier: String) -> ModelCapabilities {
+        preset(for: modelIdentifier)?.capabilities ?? .baselineChat
+    }
+
+    func imageGenerationModel(for modelIdentifier: String) -> String? {
+        capabilities(for: modelIdentifier).imageGenerationModelIdentifier
     }
 
     var defaultContextWindowTokens: Int {
@@ -117,6 +125,50 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+struct ModelCapabilities: Hashable {
+    let supportsVisionInput: Bool
+    let supportsDocumentInput: Bool
+    let imageGenerationModelIdentifier: String?
+    let supportsWebSearch: Bool
+    let supportsStructuredArtifacts: Bool
+
+    var supportsImageGeneration: Bool {
+        imageGenerationModelIdentifier != nil
+    }
+
+    static let baselineChat = ModelCapabilities(
+        supportsVisionInput: false,
+        supportsDocumentInput: false,
+        imageGenerationModelIdentifier: nil,
+        supportsWebSearch: false,
+        supportsStructuredArtifacts: true
+    )
+
+    static let openAIChat = ModelCapabilities(
+        supportsVisionInput: true,
+        supportsDocumentInput: true,
+        imageGenerationModelIdentifier: "gpt-image-1",
+        supportsWebSearch: true,
+        supportsStructuredArtifacts: true
+    )
+
+    static let anthropicChat = ModelCapabilities(
+        supportsVisionInput: true,
+        supportsDocumentInput: true,
+        imageGenerationModelIdentifier: nil,
+        supportsWebSearch: false,
+        supportsStructuredArtifacts: true
+    )
+
+    static let geminiChat = ModelCapabilities(
+        supportsVisionInput: true,
+        supportsDocumentInput: true,
+        imageGenerationModelIdentifier: nil,
+        supportsWebSearch: true,
+        supportsStructuredArtifacts: true
+    )
+}
+
 struct LLMModelPreset: Identifiable, Hashable {
     let provider: LLMProvider
     let title: String
@@ -124,6 +176,7 @@ struct LLMModelPreset: Identifiable, Hashable {
     let modelIdentifier: String
     let versionLabel: String
     let contextWindowTokens: Int
+    let capabilities: ModelCapabilities
 
     var id: String {
         "\(provider.rawValue)-\(modelIdentifier)"
@@ -136,15 +189,35 @@ struct LLMModelPreset: Identifiable, Hashable {
     var contextWindowLabel: String {
         TokenFormatting.windowLabel(contextWindowTokens)
     }
+
+    var supportsVisionInput: Bool {
+        capabilities.supportsVisionInput
+    }
+
+    var supportsDocumentInput: Bool {
+        capabilities.supportsDocumentInput
+    }
+
+    var supportsImageGeneration: Bool {
+        capabilities.supportsImageGeneration
+    }
+
+    var imageGenerationModelIdentifier: String? {
+        capabilities.imageGenerationModelIdentifier
+    }
+
+    var supportsWebSearch: Bool {
+        capabilities.supportsWebSearch
+    }
 }
 
-enum Role: String, Codable {
+enum Role: String, Codable, Sendable {
     case system
     case user
     case assistant
 }
 
-struct MessageAttachment: Codable, Equatable, Identifiable {
+struct MessageAttachment: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     let data: Data
     let mimeType: String
@@ -153,6 +226,61 @@ struct MessageAttachment: Codable, Equatable, Identifiable {
         self.id = id
         self.data = data
         self.mimeType = mimeType
+    }
+}
+
+enum ComposerMode: String, CaseIterable, Identifiable, Codable, Sendable {
+    case chat
+    case image
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .chat:
+            return "Chat"
+        case .image:
+            return "Image"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .chat:
+            return "text.bubble"
+        case .image:
+            return "photo"
+        }
+    }
+}
+
+enum ImageGenerationSize: String, CaseIterable, Identifiable, Codable, Sendable {
+    case square = "1024x1024"
+    case portrait = "1024x1536"
+    case landscape = "1536x1024"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .square:
+            return "Square"
+        case .portrait:
+            return "Portrait"
+        case .landscape:
+            return "Landscape"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .square:
+            return "square"
+        case .portrait:
+            return "rectangle.portrait"
+        case .landscape:
+            return "rectangle"
+        }
     }
 }
 
@@ -177,6 +305,17 @@ struct ChatRequest: Sendable {
     let systemPrompt: String?
     let model: String
     let allowsWebSearch: Bool
+}
+
+struct ImageGenerationRequest: Sendable {
+    let prompt: String
+    let model: String
+    let size: ImageGenerationSize
+}
+
+struct ImageGenerationResponse: Sendable {
+    let images: [MessageAttachment]
+    let revisedPrompt: String?
 }
 
 enum LLMStreamEvent: Sendable {

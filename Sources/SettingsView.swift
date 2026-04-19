@@ -21,22 +21,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     }
 }
 
-private enum ContextWindowPreset: Int, CaseIterable, Identifiable {
-    case thirtyTwoK = 32_000
-    case sixtyFourK = 64_000
-    case oneTwentyEightK = 128_000
-    case twoFiftySixK = 256_000
-    case fiveTwelveK = 512_000
-    case oneMillion = 1_000_000
-    case twoMillion = 2_000_000
-
-    var id: Int { rawValue }
-
-    var title: String {
-        TokenFormatting.windowLabel(rawValue)
-    }
-}
-
 struct SettingsView: View {
     @ObservedObject var viewModel: ChatViewModel
     @EnvironmentObject private var settingsStore: SettingsStore
@@ -174,19 +158,12 @@ private struct SettingsDefaultsPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
 
                 SettingsFieldLabel("Context Window")
-                Picker("Context Window", selection: Binding(
-                    get: { settingsStore.contextTokenLimit },
-                    set: { settingsStore.contextTokenLimit = $0 }
-                )) {
-                    ForEach(ContextWindowPreset.allCases) { preset in
-                        Text(preset.title).tag(preset.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .font(AppTheme.uiFont(14, weight: .regular))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .help("Auto-syncs from the selected model, but you can still adjust it manually.")
+                SettingsContextWindowCard(
+                    tokenLimit: settingsStore.contextWindowTokens(
+                        for: settingsStore.defaultProvider,
+                        modelIdentifier: settingsStore.selectedModel(for: settingsStore.defaultProvider)
+                    )
+                )
 
                 Toggle(isOn: Binding(
                     get: { settingsStore.webSearchEnabled },
@@ -204,7 +181,7 @@ private struct SettingsDefaultsPanel: View {
                 .toggleStyle(.switch)
                 .tint(AppTheme.accent)
 
-                Text("Matches the selected model by default. The composer meter shows live usage against this limit, and older messages are trimmed first when the limit is reached.")
+                Text("This limit is determined by the selected model. The composer meter shows live usage against it, and older messages are trimmed first when the limit is reached.")
                     .font(AppTheme.uiFont(11, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
 
@@ -561,6 +538,34 @@ private struct SettingsFieldLabel: View {
         Text(text)
             .font(AppTheme.uiFont(11, weight: .semibold))
             .foregroundStyle(AppTheme.textSecondary)
+    }
+}
+
+private struct SettingsContextWindowCard: View {
+    let tokenLimit: Int
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(TokenFormatting.windowLabel(tokenLimit))
+                    .font(AppTheme.monoFont(14, weight: .semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+                Text("Derived from the selected model")
+                    .font(AppTheme.uiFont(11, weight: .medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "lock.fill")
+                .font(AppTheme.uiFont(12, weight: .semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.surfaceSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
     }
 }
 
