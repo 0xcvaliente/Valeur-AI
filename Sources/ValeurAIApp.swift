@@ -10,48 +10,35 @@ struct ValeurAIApp: App {
 
     init() {
         func buildContainer() throws -> ModelContainer {
-            try ModelContainer(for: ConversationRecord.self, MessageRecord.self)
+            try ModelContainer(
+                for: ConversationRecord.self,
+                MessageRecord.self,
+                WorkspaceRecord.self,
+                WorkspaceBlockRecord.self,
+                WorkspaceBlockRevisionRecord.self
+            )
         }
 
-        func removePersistentStoreFiles() {
-            let fm = FileManager.default
-            guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-                return
-            }
-
-            let storeDirectory = appSupport
-                .appending(path: Bundle.main.bundleIdentifier ?? "com.sehford.valeurayai.macosapp")
-            let storeBaseURL = storeDirectory.appending(path: "default.store")
-            let candidates = [
-                storeBaseURL,
-                URL(fileURLWithPath: storeBaseURL.path + "-wal"),
-                URL(fileURLWithPath: storeBaseURL.path + "-shm"),
-                URL(fileURLWithPath: storeBaseURL.path + "-journal")
-            ]
-
-            for url in candidates {
-                try? fm.removeItem(at: url)
+        func buildInMemoryContainer() -> ModelContainer {
+            do {
+                return try ModelContainer(
+                    for: ConversationRecord.self,
+                    MessageRecord.self,
+                    WorkspaceRecord.self,
+                    WorkspaceBlockRecord.self,
+                    WorkspaceBlockRevisionRecord.self,
+                    configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+                )
+            } catch {
+                fatalError("In-memory data store initialization failed: \(error)")
             }
         }
 
         do {
             modelContainer = try buildContainer()
         } catch {
-            removePersistentStoreFiles()
-            do {
-                modelContainer = try buildContainer()
-            } catch let finalError {
-                print("Data store initialization failed after recovery attempt: \(finalError)")
-                do {
-                    modelContainer = try ModelContainer(
-                        for: ConversationRecord.self,
-                        MessageRecord.self,
-                        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-                    )
-                } catch {
-                    fatalError("In-memory data store initialization failed: \(error)")
-                }
-            }
+            print("Persistent data store initialization failed: \(error)")
+            modelContainer = buildInMemoryContainer()
         }
 
         let keychain = KeychainService()

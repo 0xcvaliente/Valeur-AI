@@ -334,8 +334,8 @@ final class ConversationRecord {
     var providerRawValue: String
     var modelIdentifier: String
     var systemPromptOverride: String
-    var persistedInputTokenCount: Int
-    var persistedOutputTokenCount: Int
+    var persistedInputTokenCount: Int?
+    var persistedOutputTokenCount: Int?
     @Relationship(deleteRule: .cascade, inverse: \MessageRecord.conversation)
     var messages: [MessageRecord]
 
@@ -347,8 +347,8 @@ final class ConversationRecord {
         provider: LLMProvider = .openAI,
         modelIdentifier: String? = nil,
         storedSystemPromptOverride: String = "",
-        persistedInputTokenCount: Int = 0,
-        persistedOutputTokenCount: Int = 0,
+        persistedInputTokenCount: Int? = 0,
+        persistedOutputTokenCount: Int? = 0,
         messages: [MessageRecord] = []
     ) {
         self.id = id
@@ -380,7 +380,7 @@ final class ConversationRecord {
     }
 
     var persistedTotalTokenCount: Int {
-        persistedInputTokenCount + persistedOutputTokenCount
+        (persistedInputTokenCount ?? 0) + (persistedOutputTokenCount ?? 0)
     }
 }
 

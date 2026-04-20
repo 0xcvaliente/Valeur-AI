@@ -3,12 +3,14 @@ import SwiftUI
 
 struct ChatWindowView: View {
     @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var workspaceViewModel: WorkspaceViewModel
     @ObservedObject var settingsStore: SettingsStore
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var isSidebarPinned = false
     @State private var isSidebarHovered = false
     @State private var isSidebarStripHovered = false
     @State private var showSettings = false
+    @State private var showWorkspace = false
     @State private var hideWorkItem: DispatchWorkItem?
     private let integratedSidebarWidth: CGFloat = 280
     private let sidebarHoverStripWidth: CGFloat = 20
@@ -41,9 +43,25 @@ struct ChatWindowView: View {
                 }
 
                 ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showWorkspace = true
+                    } label: {
+                        Image(systemName: "square.split.2x1")
+                            .font(AppTheme.uiFont(15, weight: .semibold))
+                    }
+                    .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true, showBorder: false, tight: true, showBackground: false))
+                    .help("Workspace")
+                }
+
+                ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("Conversation as PDF") {
                             Task { await viewModel.exportConversationPDF() }
+                        }
+                        .disabled(!viewModel.canExportConversationDocument)
+
+                        Button("Conversation as DOCX") {
+                            Task { await viewModel.exportConversationDOCX() }
                         }
                         .disabled(!viewModel.canExportConversationDocument)
 
@@ -56,6 +74,11 @@ struct ChatWindowView: View {
 
                         Button("Latest Table as CSV") {
                             Task { await viewModel.exportLatestTableCSV() }
+                        }
+                        .disabled(!viewModel.canExportConversationCSV)
+
+                        Button("Latest Table as XLSX") {
+                            Task { await viewModel.exportLatestTableXLSX() }
                         }
                         .disabled(!viewModel.canExportConversationCSV)
 
@@ -78,13 +101,19 @@ struct ChatWindowView: View {
                     .environmentObject(settingsStore)
                     .frame(width: 920, height: 760)
             }
-            .alert("Error", isPresented: Binding(
-                get: { viewModel.errorMessage != nil },
-                set: { if !$0 { viewModel.errorMessage = nil } }
-            )) {
+            .sheet(isPresented: $showWorkspace) {
+                WorkspaceView(viewModel: workspaceViewModel)
+                    .frame(minWidth: 1180, minHeight: 780)
+            }
+            .alert("Error", isPresented: chatErrorBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(viewModel.errorMessage ?? "")
+            }
+            .alert("Workspace Error", isPresented: workspaceErrorBinding) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(workspaceViewModel.errorMessage ?? "")
             }
             .onReceive(NotificationCenter.default.publisher(for: .newChatRequested)) { _ in
                 viewModel.newChat()
@@ -101,14 +130,23 @@ struct ChatWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: .exportConversationPDFRequested)) { _ in
                 Task { await viewModel.exportConversationPDF() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .exportConversationDOCXRequested)) { _ in
+                Task { await viewModel.exportConversationDOCX() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .exportConversationHTMLRequested)) { _ in
                 Task { await viewModel.exportConversationHTML() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .exportLatestTableCSVRequested)) { _ in
                 Task { await viewModel.exportLatestTableCSV() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .exportLatestTableXLSXRequested)) { _ in
+                Task { await viewModel.exportLatestTableXLSX() }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .exportLatestVisualPNGRequested)) { _ in
                 Task { await viewModel.exportLatestVisualPNG() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openWorkspaceRequested)) { _ in
+                showWorkspace = true
             }
     }
 
@@ -137,7 +175,13 @@ struct ChatWindowView: View {
             )
             .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 420)
         } detail: {
-            ChatDetailView(viewModel: viewModel)
+            ChatDetailView(
+                viewModel: viewModel,
+                workspaceViewModel: workspaceViewModel,
+                onOpenWorkspace: {
+                    showWorkspace = true
+                }
+            )
         }
         .navigationSplitViewStyle(.balanced)
         .overlay(alignment: .leading) {
@@ -202,6 +246,28 @@ struct ChatWindowView: View {
         }
         hideWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: work)
+    }
+
+    private var chatErrorBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    viewModel.errorMessage = nil
+                }
+            }
+        )
+    }
+
+    private var workspaceErrorBinding: Binding<Bool> {
+        Binding(
+            get: { workspaceViewModel.errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    workspaceViewModel.errorMessage = nil
+                }
+            }
+        )
     }
 }
 

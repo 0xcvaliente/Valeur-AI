@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct MessageBubbleView: View {
     let message: MessageRecord
     var onEditUserMessage: (() -> Void)? = nil
+    var onOpenInWorkspace: (() -> Void)? = nil
     @State private var isHovering = false
     @State private var didCopy = false
 
@@ -39,7 +40,12 @@ struct MessageBubbleView: View {
                 .modifier(MessageContainerStyle(role: message.role))
                 .overlay(alignment: .topTrailing) {
                     if isHovering && message.role == .assistant {
-                        copyButton
+                        HStack(spacing: 8) {
+                            if canOpenInWorkspace {
+                                openWorkspaceButton
+                            }
+                            copyButton
+                        }
                             .padding(.top, 8)
                             .padding(.trailing, 8)
                     }
@@ -60,6 +66,23 @@ struct MessageBubbleView: View {
             }
         }
         .onHover { isHovering = $0 }
+        .contextMenu {
+            if canOpenInWorkspace {
+                Button("Open in Workspace") {
+                    onOpenInWorkspace?()
+                }
+            }
+
+            Button("Copy") {
+                copyMessageText()
+            }
+
+            if message.role == .user, hasEditableText {
+                Button("Edit Prompt") {
+                    onEditUserMessage?()
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -114,6 +137,14 @@ struct MessageBubbleView: View {
         !message.decryptedContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var hasWorkspaceContent: Bool {
+        hasEditableText || message.decryptedAttachmentsData != nil
+    }
+
+    private var canOpenInWorkspace: Bool {
+        hasWorkspaceContent && onOpenInWorkspace != nil
+    }
+
     private var copyButton: some View {
         Button {
             copyMessageText()
@@ -150,9 +181,30 @@ struct MessageBubbleView: View {
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
 
+    private var openWorkspaceButton: some View {
+        Button {
+            onOpenInWorkspace?()
+        } label: {
+            Image(systemName: "square.split.2x1")
+                .font(AppTheme.uiFont(12, weight: .semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(AppTheme.surfacePrimary)
+                .clipShape(Circle())
+                .overlay(
+                    Circle().stroke(AppTheme.border, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+    }
+
     private var userActionRow: some View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
+            if canOpenInWorkspace {
+                openWorkspaceButton
+            }
             copyButton
             editButton
         }
@@ -551,12 +603,12 @@ struct MarkdownLayoutBlock: Identifiable, Equatable {
     }
 }
 
-struct MarkdownRemoteImage: Equatable {
+struct MarkdownRemoteImage: Codable, Equatable, Sendable {
     let altText: String
     let url: URL
 }
 
-enum MarkdownTableAlignment: Equatable {
+enum MarkdownTableAlignment: String, Codable, Equatable, Sendable {
     case leading
     case center
     case trailing
@@ -584,10 +636,10 @@ enum MarkdownTableAlignment: Equatable {
     }
 }
 
-struct MarkdownTable: Equatable {
-    let headers: [String]
-    let alignments: [MarkdownTableAlignment]
-    let rows: [[String]]
+struct MarkdownTable: Codable, Equatable, Sendable {
+    var headers: [String]
+    var alignments: [MarkdownTableAlignment]
+    var rows: [[String]]
 }
 
 struct MarkdownListItem: Identifiable, Equatable {
@@ -859,8 +911,8 @@ private struct MarkdownTableView: View {
     }
 }
 
-struct MarkdownChartSpec: Decodable, Equatable {
-    enum ChartType: String, Decodable, Equatable {
+struct MarkdownChartSpec: Codable, Equatable, Sendable {
+    enum ChartType: String, Codable, Equatable, Sendable {
         case bar
         case line
         case area
@@ -878,7 +930,7 @@ struct MarkdownChartSpec: Decodable, Equatable {
     }
 }
 
-struct MarkdownChartPoint: Decodable, Equatable, Identifiable {
+struct MarkdownChartPoint: Codable, Equatable, Identifiable, Sendable {
     let label: String
     let value: Double
     let series: String?

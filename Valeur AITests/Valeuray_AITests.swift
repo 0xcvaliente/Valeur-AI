@@ -136,6 +136,203 @@ struct ImageGenerationSizeTests {
     }
 }
 
+struct WorkspaceSeedFactoryTests {
+
+    @Test func createsOrderedSeedsFromAttachmentsMarkdownAndCharts() {
+        let imageData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6Zz14AAAAASUVORK5CYII=")!
+        let attachments = [MessageAttachment(data: imageData, mimeType: "image/png")]
+        let seeds = WorkspaceSeedFactory.seeds(from: """
+        ## Summary
+
+        Revenue is up this quarter.
+
+        | Metric | Value |
+        | --- | ---: |
+        | Revenue | 12 |
+
+        ![Architecture](https://example.com/diagram.png)
+
+        ```chart
+        {
+          "type": "bar",
+          "title": "Revenue",
+          "xLabel": "Month",
+          "yLabel": "Value",
+          "data": [
+            { "label": "Jan", "value": 12 }
+          ]
+        }
+        ```
+        """, attachments: attachments)
+
+        #expect(seeds.map(\.kind) == [.image, .text, .table, .image, .chart])
+        #expect(seeds[1].content.contains("## Summary"))
+        #expect(WorkspaceSeedFactory.decodeTable(from: seeds[2].content)?.rows == [["Revenue", "12"]])
+        #expect(WorkspaceSeedFactory.decodeImagePayload(from: seeds[3].content).remoteURLString == "https://example.com/diagram.png")
+        #expect(WorkspaceSeedFactory.decodeChart(from: seeds[4].content)?.title == "Revenue")
+    }
+
+    @Test func workspaceTitleUsesContentPreviewBeforeFallback() {
+        #expect(WorkspaceSeedFactory.workspaceTitle(for: "  First line\nSecond line  ", fallback: "Chat") == "First line Second line")
+        #expect(WorkspaceSeedFactory.workspaceTitle(for: "   ", fallback: "Strategy") == "Strategy Workspace")
+    }
+}
+
+@MainActor
+struct WorkspaceAIRevisionSupportTests {
+
+    @Test func unwrappedCodeFenceRemovesOuterFence() {
+        let unwrapped = WorkspaceAIRevisionParser.unwrappedCodeFence("""
+        ```json
+        { "value": 1 }
+        ```
+        """)
+
+        #expect(unwrapped == "{ \"value\": 1 }")
+    }
+
+    @Test func jsonObjectStringExtractsJSONFromNarrativeWrapper() {
+        let json = WorkspaceAIRevisionParser.jsonObjectString(from: "Here you go:\n```json\n{\"headers\":[\"A\"],\"alignments\":[\"leading\"],\"rows\":[[\"1\"]]}\n```")
+        #expect(json == "{\"headers\":[\"A\"],\"alignments\":[\"leading\"],\"rows\":[[\"1\"]]}")
+    }
+
+    @Test func revisedSeedParsesTableJSONResponse() throws {
+        let block = WorkspaceBlockRecord(
+            kind: .table,
+            sortOrder: 0,
+            storedContent: WorkspaceSeedFactory.encodedTable(
+                MarkdownTable(headers: ["Metric"], alignments: [.leading], rows: [["Revenue"]])
+            )
+        )
+
+        let seed = try WorkspaceAIRevisionComposer.revisedSeed(
+            from: """
+            ```json
+            {
+              "headers": ["Metric", "Value"],
+              "alignments": ["leading", "trailing"],
+              "rows": [["Revenue", "12"]]
+            }
+            ```
+            """,
+            originalBlock: block
+        )
+
+        #expect(seed.kind == .table)
+        #expect(WorkspaceSeedFactory.decodeTable(from: seed.content)?.rows == [["Revenue", "12"]])
+    }
+}
+
+@MainActor
+struct WorkspaceExportServiceTests {
+
+    @Test func exportWorkspaceHTMLIncludesBlockContent() throws {
+        let workspace = WorkspaceRecord(storedTitle: try MessageEncryption.shared.encryptString("Quarterly Review"))
+        let textBlock = WorkspaceBlockRecord(
+            kind: .text,
+            sortOrder: 0,
+            storedContent: try MessageEncryption.shared.encryptString("## Summary\n\nRevenue improved."),
+            workspace: workspace
+        )
+        let tableBlock = WorkspaceBlockRecord(
+            kind: .table,
+            sortOrder: 1,
+            storedContent: try MessageEncryption.shared.encryptString(
+                WorkspaceSeedFactory.encodedTable(
+                    MarkdownTable(headers: ["Metric", "Value"], alignments: [.leading, .trailing], rows: [["Revenue", "12"]])
+                )
+            ),
+            workspace: workspace
+        )
+        workspace.blocks = [textBlock, tableBlock]
+
+        let exported = try WorkspaceExportService.exportWorkspaceHTML(workspace)
+        let html = String(decoding: exported.data, as: UTF8.self)
+
+        #expect(exported.suggestedFilename == "quarterly-review.html")
+        #expect(html.contains("Quarterly Review"))
+        #expect(html.contains("Revenue improved."))
+        #expect(html.contains("Metric"))
+    }
+
+    @Test func exportTableBlockCSVUsesWorkspaceFilenameStem() throws {
+        let workspace = WorkspaceRecord(storedTitle: try MessageEncryption.shared.encryptString("Planning Board"))
+        let tableBlock = WorkspaceBlockRecord(
+            kind: .table,
+            sortOrder: 0,
+            storedContent: try MessageEncryption.shared.encryptString(
+                WorkspaceSeedFactory.encodedTable(
+                    MarkdownTable(headers: ["Item", "Owner"], alignments: [.leading, .leading], rows: [["Roadmap", "Cliff"]])
+                )
+            ),
+            workspace: workspace
+        )
+
+        let exported = try WorkspaceExportService.exportTableBlockCSV(tableBlock)
+        let csv = String(decoding: exported.data, as: UTF8.self)
+
+        #expect(exported.suggestedFilename == "planning-board-table.csv")
+        #expect(csv == "Item,Owner\nRoadmap,Cliff")
+    }
+}
+
+struct SpreadsheetSupportTests {
+
+    @Test func csvParserHandlesQuotesAndEmbeddedNewlines() {
+        let rows = CSVTableSupport.parseRows(from: #"""
+        Name,Notes
+        Alice,"Line one
+        Line two"
+        Bob,"Says ""hello"""
+        """#)
+
+        #expect(rows == [
+            ["Name", "Notes"],
+            ["Alice", "Line one\nLine two"],
+            ["Bob", "Says \"hello\""]
+        ])
+    }
+
+    @Test func csvTableBuilderUsesFirstRowAsHeaders() {
+        let table = CSVTableSupport.table(from: "Metric,Value\nRevenue,12\nUsers,240")
+        #expect(table?.headers == ["Metric", "Value"])
+        #expect(table?.rows == [["Revenue", "12"], ["Users", "240"]])
+    }
+
+    @Test func xlsxBuilderProducesZipPackage() throws {
+        let table = MarkdownTable(
+            headers: ["Metric", "Value"],
+            alignments: [.leading, .trailing],
+            rows: [["Revenue", "12"]]
+        )
+
+        let data = try OOXMLSpreadsheetBuilder.xlsxData(for: table, sheetName: "Board Review")
+        let payload = String(decoding: data, as: UTF8.self)
+
+        #expect(data.starts(with: [0x50, 0x4B]))
+        #expect(payload.contains("xl/workbook.xml"))
+        #expect(payload.contains("xl/worksheets/sheet1.xml"))
+    }
+}
+
+@MainActor
+struct ConversationRecordTokenTests {
+
+    @Test func persistedTotalTokenCountTreatsMissingValuesAsZero() {
+        let conversation = ConversationRecord(storedTitle: "Chat", persistedInputTokenCount: nil, persistedOutputTokenCount: nil)
+        #expect(conversation.persistedInputTokenCount == nil)
+        #expect(conversation.persistedOutputTokenCount == nil)
+        #expect(conversation.persistedTotalTokenCount == 0)
+    }
+
+    @Test func persistedTokenCountsDefaultToZeroForNewConversations() {
+        let conversation = ConversationRecord(storedTitle: "Chat")
+        #expect(conversation.persistedInputTokenCount == 0)
+        #expect(conversation.persistedOutputTokenCount == 0)
+        #expect(conversation.persistedTotalTokenCount == 0)
+    }
+}
+
 @MainActor
 struct ConversationExportServiceTests {
 
@@ -172,6 +369,39 @@ struct ConversationExportServiceTests {
 
         #expect(table.headers == ["Series", "Month", "Revenue"])
         #expect(table.rows == [["North", "Jan", "12"], ["South", "Feb", "18"]])
+    }
+}
+
+struct RemoteImageImportTests {
+
+    @Test func normalizedURLTrimsWhitespaceAndRejectsUnsupportedSchemes() {
+        #expect(RemoteImageImport.normalizedURL(from: "  https://example.com/cat.png  ")?.absoluteString == "https://example.com/cat.png")
+        #expect(RemoteImageImport.normalizedURL(from: "ftp://example.com/cat.png") == nil)
+        #expect(RemoteImageImport.normalizedURL(from: "not a url") == nil)
+    }
+
+    @Test func supportedImageMimeTypeRequiresRenderableImageData() {
+        let imageData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6Zz14AAAAASUVORK5CYII=")!
+
+        let mimeType = RemoteImageImport.supportedImageMimeType(
+            fromResponseMimeType: "image/webp",
+            fallbackURL: URL(string: "https://example.com/cat.png")!,
+            data: imageData
+        )
+
+        #expect(mimeType == "image/webp")
+        #expect(RemoteImageImport.supportedImageMimeType(
+            fromResponseMimeType: "text/html",
+            fallbackURL: URL(string: "https://example.com/cat.png")!,
+            data: Data("nope".utf8)
+        ) == nil)
+    }
+
+    @Test func preferredFilenameExtensionFallsBackToURLPath() {
+        let remoteURL = URL(string: "https://example.com/render.heic")!
+
+        #expect(RemoteImageImport.preferredFilenameExtension(for: "image/png", fallbackURL: remoteURL) == "png")
+        #expect(RemoteImageImport.preferredFilenameExtension(for: "application/octet-stream", fallbackURL: remoteURL) == "heic")
     }
 }
 

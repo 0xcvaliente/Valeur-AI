@@ -5,6 +5,8 @@ import SwiftUI
 
 struct ChatDetailView: View {
     @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var workspaceViewModel: WorkspaceViewModel
+    let onOpenWorkspace: () -> Void
 
     var body: some View {
         ZStack {
@@ -37,7 +39,15 @@ struct ChatDetailView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 MessageBubbleView(
                                     message: message,
-                                    onEditUserMessage: { viewModel.editMessage(message) }
+                                    onEditUserMessage: { viewModel.editMessage(message) },
+                                    onOpenInWorkspace: {
+                                        if workspaceViewModel.createWorkspace(
+                                            from: message,
+                                            conversationTitle: viewModel.selectedConversation?.decryptedTitle
+                                        ) != nil {
+                                            onOpenWorkspace()
+                                        }
+                                    }
                                 )
                                 if message.id == sortedMessages.last?.id,
                                    message.role == .assistant,

@@ -185,8 +185,8 @@ final class ConversationRepository {
         for conversation in conversations {
             let inputCount = inputTokenCount(for: conversation)
             let outputCount = outputTokenCount(for: conversation)
-            if conversation.persistedInputTokenCount != inputCount ||
-                conversation.persistedOutputTokenCount != outputCount {
+            if (conversation.persistedInputTokenCount ?? 0) != inputCount ||
+                (conversation.persistedOutputTokenCount ?? 0) != outputCount {
                 conversation.persistedInputTokenCount = inputCount
                 conversation.persistedOutputTokenCount = outputCount
                 didChange = true

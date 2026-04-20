@@ -12,6 +12,9 @@ struct ComposerView: View {
     let onSubmit: () -> Void
     @State private var isImportingAttachment = false
     @State private var attachmentImportKind: AttachmentImportKind = .photos
+    @State private var isShowingRemoteImageImporter = false
+    @State private var remoteImageURL = ""
+    @State private var isImportingRemoteImage = false
     @State private var textViewHeight: CGFloat = 38
     @State private var placeholderIndex = 0
     private let compactTextInset: CGFloat = 8
@@ -53,12 +56,34 @@ struct ComposerView: View {
                 allowsMultipleSelection: true
             ) { result in
                 if let urls = try? result.get() {
-                    for url in urls {
-                        if url.startAccessingSecurityScopedResource() {
-                            draftAttachments.append(url)
+                    viewModel.addImportedAttachments(urls)
+                }
+            }
+            .sheet(isPresented: $isShowingRemoteImageImporter) {
+                RemoteImageImportSheet(
+                    urlText: $remoteImageURL,
+                    isImporting: $isImportingRemoteImage,
+                    onCancel: {
+                        remoteImageURL = ""
+                        isShowingRemoteImageImporter = false
+                    },
+                    onImport: {
+                        let pendingURL = remoteImageURL
+                        isImportingRemoteImage = true
+                        Task {
+                            let didImport = await viewModel.importRemoteImage(from: pendingURL)
+                            await MainActor.run {
+                                isImportingRemoteImage = false
+                                if didImport {
+                                    remoteImageURL = ""
+                                    isShowingRemoteImageImporter = false
+                                }
+                            }
                         }
                     }
-                }
+                )
+                .frame(width: 460)
+                .presentationBackground(AppTheme.backgroundPrimary)
             }
     }
 
@@ -82,8 +107,7 @@ struct ComposerView: View {
                                         .overlay(Text(url.pathExtension.uppercased()).font(AppTheme.uiFont(11, weight: .medium)))
                                 }
                                 Button {
-                                    url.stopAccessingSecurityScopedResource()
-                                    draftAttachments.removeAll { $0 == url }
+                                    viewModel.removeDraftAttachment(url)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .foregroundStyle(.white, .black)
@@ -104,6 +128,12 @@ struct ComposerView: View {
                     Text("Attachments are not used for image generation yet. Remove them or switch back to chat mode.")
                         .font(AppTheme.uiFont(11, weight: .medium))
                         .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.top, 6)
+                } else if let draftAttachmentSupportMessage = viewModel.draftAttachmentSupportMessage {
+                    Text(draftAttachmentSupportMessage)
+                        .font(AppTheme.uiFont(11, weight: .medium))
+                        .foregroundStyle(AppTheme.orange500)
                         .padding(.horizontal, 14)
                         .padding(.top, 6)
                 }
@@ -148,12 +178,21 @@ struct ComposerView: View {
                         } label: {
                             Label("Add Photos", systemImage: "photo.on.rectangle.angled")
                         }
+                        .disabled(!viewModel.canUseVisionInput)
+
+                        Button {
+                            isShowingRemoteImageImporter = true
+                        } label: {
+                            Label("Add Image URL", systemImage: "link.badge.plus")
+                        }
+                        .disabled(!viewModel.canUseVisionInput)
 
                         Button {
                             presentAttachmentImporter(.pdf)
                         } label: {
                             Label("Add PDF", systemImage: "doc.richtext")
                         }
+                        .disabled(!viewModel.canUseDocumentInput)
                     } label: {
                         ComposerCircleButton(icon: "plus")
                     }
@@ -427,6 +466,60 @@ private enum AttachmentImportKind {
         case .pdf:
             return [.pdf]
         }
+    }
+}
+
+private struct RemoteImageImportSheet: View {
+    @Binding var urlText: String
+    @Binding var isImporting: Bool
+    let onCancel: () -> Void
+    let onImport: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Import Image from URL")
+                    .font(AppTheme.headingFont(20, weight: .semibold))
+                    .foregroundStyle(AppTheme.textPrimary)
+
+                Text("Paste a direct image link to add it as a local draft attachment for image understanding.")
+                    .font(AppTheme.uiFont(13, weight: .medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            TextField("https://example.com/image.png", text: $urlText)
+                .textFieldStyle(.roundedBorder)
+                .font(AppTheme.uiFont(14, weight: .regular))
+                .disabled(isImporting)
+                .onSubmit {
+                    guard canImport else { return }
+                    onImport()
+                }
+
+            HStack(spacing: 10) {
+                if isImporting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Spacer(minLength: 0)
+
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+                    .disabled(isImporting)
+
+                Button("Import", action: onImport)
+                    .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
+                    .disabled(!canImport || isImporting)
+            }
+        }
+        .padding(22)
+        .frame(minWidth: 420)
+    }
+
+    private var canImport: Bool {
+        !urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

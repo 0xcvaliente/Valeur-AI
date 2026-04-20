@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 import SwiftData
@@ -24,6 +25,57 @@ final class AppState: ObservableObject {
     }
 }
 
+enum RemoteImageImport {
+    static func normalizedURL(from rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        return url
+    }
+
+    static func supportedImageMimeType(fromResponseMimeType mimeType: String?, fallbackURL: URL, data: Data) -> String? {
+        guard NSImage(data: data) != nil else {
+            return nil
+        }
+
+        if let mimeType,
+           let contentType = UTType(mimeType: mimeType),
+           contentType.conforms(to: .image) {
+            return mimeType.lowercased()
+        }
+
+        let fallbackExtension = fallbackURL.pathExtension.lowercased()
+        if let contentType = UTType(filenameExtension: fallbackExtension),
+           contentType.conforms(to: .image),
+           let preferredMimeType = contentType.preferredMIMEType {
+            return preferredMimeType
+        }
+
+        return "image/png"
+    }
+
+    static func writeTemporaryImage(data: Data, mimeType: String, originalURL: URL) throws -> URL {
+        let fileExtension = preferredFilenameExtension(for: mimeType, fallbackURL: originalURL)
+        let filename = "remote-image-\(UUID().uuidString).\(fileExtension)"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    static func preferredFilenameExtension(for mimeType: String, fallbackURL: URL) -> String {
+        if let contentType = UTType(mimeType: mimeType),
+           let preferredFilenameExtension = contentType.preferredFilenameExtension {
+            return preferredFilenameExtension
+        }
+
+        let fallbackExtension = fallbackURL.pathExtension.lowercased()
+        return fallbackExtension.isEmpty ? "png" : fallbackExtension
+    }
+}
+
 @MainActor
 final class ChatViewModel: ObservableObject {
     @Published private(set) var conversations: [ConversationRecord] = []
@@ -43,6 +95,8 @@ final class ChatViewModel: ObservableObject {
     private let appState: AppState
     private let repository: ConversationRepository
     private var activeStreamTask: Task<Void, Never>?
+    private var securityScopedDraftAttachmentPaths: Set<String> = []
+    private var temporaryDraftAttachmentPaths: Set<String> = []
 
     init(appState: AppState, repository: ConversationRepository) {
         self.appState = appState
@@ -116,6 +170,10 @@ final class ChatViewModel: ObservableObject {
         switch composerMode {
         case .chat:
             guard !trimmed.isEmpty || !attachments.isEmpty else { return }
+            if let draftAttachmentSupportMessage {
+                errorMessage = draftAttachmentSupportMessage
+                return
+            }
         case .image:
             guard !trimmed.isEmpty else { return }
         }
@@ -146,6 +204,82 @@ final class ChatViewModel: ObservableObject {
         isSending = false
     }
 
+    func addImportedAttachments(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+
+        var firstErrorMessage: String?
+
+        for url in urls {
+            do {
+                let mimeType = try supportedAttachmentMimeType(for: url)
+                if let unsupportedMessage = unsupportedAttachmentMessage(for: mimeType) {
+                    throw ServiceError.providerMessage(unsupportedMessage)
+                }
+
+                guard url.startAccessingSecurityScopedResource() else {
+                    throw ServiceError.providerMessage("Could not access \(url.lastPathComponent). Remove it and import it again.")
+                }
+
+                if draftAttachments.contains(url) {
+                    url.stopAccessingSecurityScopedResource()
+                    continue
+                }
+
+                securityScopedDraftAttachmentPaths.insert(url.path)
+                draftAttachments.append(url)
+            } catch {
+                firstErrorMessage = firstErrorMessage ?? displayMessage(for: error)
+            }
+        }
+
+        if let firstErrorMessage {
+            errorMessage = firstErrorMessage
+        }
+    }
+
+    func importRemoteImage(from rawValue: String) async -> Bool {
+        do {
+            guard canUseVisionInput else {
+                throw ServiceError.providerMessage(unsupportedAttachmentMessage(for: "image/png") ?? "The selected model cannot analyze images.")
+            }
+
+            guard let url = RemoteImageImport.normalizedURL(from: rawValue) else {
+                throw ServiceError.providerMessage("Enter a valid http or https image URL.")
+            }
+
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+                throw ServiceError.providerMessage("Could not download the image from that URL.")
+            }
+
+            if data.count > 20 * 1024 * 1024 {
+                throw ServiceError.providerMessage("Attachment exceeds the 20 MB limit.")
+            }
+
+            guard let mimeType = RemoteImageImport.supportedImageMimeType(
+                fromResponseMimeType: httpResponse.mimeType,
+                fallbackURL: url,
+                data: data
+            ) else {
+                throw ServiceError.providerMessage("That URL did not return a supported image.")
+            }
+
+            let localURL = try RemoteImageImport.writeTemporaryImage(data: data, mimeType: mimeType, originalURL: url)
+            temporaryDraftAttachmentPaths.insert(localURL.path)
+            draftAttachments.append(localURL)
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = displayMessage(for: error)
+            return false
+        }
+    }
+
+    func removeDraftAttachment(_ url: URL) {
+        cleanupDraftAttachment(url)
+        draftAttachments.removeAll { $0 == url }
+    }
+
     func invalidateServiceCache(for provider: LLMProvider) {
         appState.serviceFactory.invalidate(for: provider)
     }
@@ -158,8 +292,16 @@ final class ChatViewModel: ObservableObject {
         await exportSelectedConversation(using: { try await ConversationExportService.exportConversationPDF($0) })
     }
 
+    func exportConversationDOCX() async {
+        await exportSelectedConversation(using: { try ConversationExportService.exportConversationDOCX($0) })
+    }
+
     func exportLatestTableCSV() async {
         await exportSelectedConversation(using: { try ConversationExportService.exportLatestTableCSV($0) })
+    }
+
+    func exportLatestTableXLSX() async {
+        await exportSelectedConversation(using: { try ConversationExportService.exportLatestTableXLSX($0) })
     }
 
     func exportLatestVisualPNG() async {
@@ -258,6 +400,24 @@ final class ChatViewModel: ObservableObject {
         ConversationExportService.hasVisual(in: selectedConversation)
     }
 
+    var canUseVisionInput: Bool {
+        activeModelCapabilities.supportsVisionInput
+    }
+
+    var canUseDocumentInput: Bool {
+        activeModelCapabilities.supportsDocumentInput
+    }
+
+    var draftAttachmentSupportMessage: String? {
+        for url in draftAttachments {
+            let mimeType = (try? supportedAttachmentMimeType(for: url)) ?? attachmentMimeType(for: url)
+            if let unsupportedMessage = unsupportedAttachmentMessage(for: mimeType) {
+                return unsupportedMessage
+            }
+        }
+        return nil
+    }
+
     var activeProvider: LLMProvider {
         selectedConversation?.provider ?? appState.settingsStore.defaultProvider
     }
@@ -313,13 +473,13 @@ final class ChatViewModel: ObservableObject {
 
     var savedInputTokenCountAcrossChats: Int {
         conversations.reduce(into: 0) { total, conversation in
-            total += conversation.persistedInputTokenCount
+            total += conversation.persistedInputTokenCount ?? 0
         }
     }
 
     var savedOutputTokenCountAcrossChats: Int {
         conversations.reduce(into: 0) { total, conversation in
-            total += conversation.persistedOutputTokenCount
+            total += conversation.persistedOutputTokenCount ?? 0
         }
     }
 
@@ -652,6 +812,20 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    private func unsupportedAttachmentMessage(for mimeType: String) -> String? {
+        let providerName = activeProvider.displayName
+
+        if mimeType.hasPrefix("image/") && !canUseVisionInput {
+            return "The selected \(providerName) model can't analyze images. Switch models or remove image attachments."
+        }
+
+        if mimeType == "application/pdf" && !canUseDocumentInput {
+            return "The selected \(providerName) model can't analyze PDFs. Switch models or remove PDF attachments."
+        }
+
+        return nil
+    }
+
     private func lastAssistantMessage(in conversation: ConversationRecord?) -> MessageRecord? {
         guard let conversation else { return nil }
         return conversation.messages
@@ -716,16 +890,26 @@ final class ChatViewModel: ObservableObject {
 
         if let contentType = resourceValues.contentType {
             if contentType.conforms(to: .pdf) {
+                if let unsupportedMessage = unsupportedAttachmentMessage(for: "application/pdf") {
+                    throw ServiceError.providerMessage(unsupportedMessage)
+                }
                 return "application/pdf"
             }
 
             if contentType.conforms(to: .image) {
-                return contentType.preferredMIMEType ?? attachmentMimeType(for: url)
+                let mimeType = contentType.preferredMIMEType ?? attachmentMimeType(for: url)
+                if let unsupportedMessage = unsupportedAttachmentMessage(for: mimeType) {
+                    throw ServiceError.providerMessage(unsupportedMessage)
+                }
+                return mimeType
             }
         }
 
         let fallbackMimeType = attachmentMimeType(for: url)
         if fallbackMimeType == "application/pdf" || fallbackMimeType.hasPrefix("image/") {
+            if let unsupportedMessage = unsupportedAttachmentMessage(for: fallbackMimeType) {
+                throw ServiceError.providerMessage(unsupportedMessage)
+            }
             return fallbackMimeType
         }
 
@@ -734,7 +918,17 @@ final class ChatViewModel: ObservableObject {
 
     private func releaseDraftAttachments(_ attachments: [URL]) {
         for url in attachments {
+            cleanupDraftAttachment(url)
+        }
+    }
+
+    private func cleanupDraftAttachment(_ url: URL) {
+        if securityScopedDraftAttachmentPaths.remove(url.path) != nil {
             url.stopAccessingSecurityScopedResource()
+        }
+
+        if temporaryDraftAttachmentPaths.remove(url.path) != nil {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 
