@@ -7,12 +7,34 @@ struct RootView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: ChatViewModel?
     @State private var workspaceViewModel: WorkspaceViewModel?
-    @AppStorage("hasAcceptedTerms") private var hasAcceptedTerms = false
+    @AppStorage("hasAcceptedTerms") private var storedHasAcceptedTerms = false
+    @State private var uiTestingAcceptedTermsOverride = UITestLaunchConfiguration.acceptedTermsOverride
 
     var body: some View {
+        let hasAcceptedTerms = uiTestingAcceptedTermsOverride ?? storedHasAcceptedTerms
         Group {
-            if !hasAcceptedTerms {
-                TermsView(onAccept: { hasAcceptedTerms = true })
+            if UITestLaunchConfiguration.screen == .terms {
+                TermsView(onAccept: {
+                    storedHasAcceptedTerms = true
+                    if uiTestingAcceptedTermsOverride != nil {
+                        uiTestingAcceptedTermsOverride = true
+                    }
+                })
+            } else if UITestLaunchConfiguration.screen == .settings {
+                if let viewModel {
+                    SettingsView(viewModel: viewModel)
+                        .environmentObject(appState.settingsStore)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else if !hasAcceptedTerms {
+                TermsView(onAccept: {
+                    storedHasAcceptedTerms = true
+                    if uiTestingAcceptedTermsOverride != nil {
+                        uiTestingAcceptedTermsOverride = true
+                    }
+                })
             } else if let viewModel, let workspaceViewModel {
                 ChatWindowView(
                     viewModel: viewModel,
@@ -25,6 +47,19 @@ struct RootView: View {
             }
         }
         .background(WindowAppearanceSynchronizer(colorScheme: appState.settingsStore.appAppearance.colorScheme))
+        .alert(
+            "Storage Notice",
+            isPresented: Binding(
+                get: { appState.persistenceWarningMessage != nil },
+                set: { if !$0 { appState.persistenceWarningMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                appState.persistenceWarningMessage = nil
+            }
+        } message: {
+            Text(appState.persistenceWarningMessage ?? "")
+        }
         .task {
             if viewModel == nil || workspaceViewModel == nil {
                 let repository = ConversationRepository(context: modelContext)

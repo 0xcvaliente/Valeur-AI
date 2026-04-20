@@ -148,6 +148,7 @@ struct ChatWindowView: View {
             .onReceive(NotificationCenter.default.publisher(for: .openWorkspaceRequested)) { _ in
                 showWorkspace = true
             }
+            .onAppear(perform: applyUITestLaunchConfiguration)
     }
 
     private var splitView: some View {
@@ -212,6 +213,11 @@ struct ChatWindowView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             columnVisibility = isSidebarPinned ? .all : .detailOnly
         }
+    }
+
+    private func applyUITestLaunchConfiguration() {
+        guard UITestLaunchConfiguration.opensSettingsOnLaunch, !showSettings else { return }
+        showSettings = true
     }
 
     private func handleSidebarHover(_ isHovering: Bool) {

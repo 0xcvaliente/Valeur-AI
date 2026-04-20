@@ -16,6 +16,11 @@ let package = Package(
         .executableTarget(
             name: "ValeurAI",
             path: "Sources"
+        ),
+        .testTarget(
+            name: "ValeurAITestsSPM",
+            dependencies: ["ValeurAI"],
+            path: "Tests/ValeurAITestsSPM"
         )
     ]
 )

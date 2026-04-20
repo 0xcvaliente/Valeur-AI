@@ -12,6 +12,7 @@ struct SidebarView: View {
     @State private var activeSection: SidebarSection = .allChats
     @State private var renamingConversation: ConversationRecord?
     @State private var renameText = ""
+    @State private var conversationPendingDeletion: ConversationRecord?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -46,6 +47,7 @@ struct SidebarView: View {
                                     ForEach(group.items) { conversation in
                                         SidebarConversationRow(
                                             conversation: conversation,
+                                            metadata: viewModel.sidebarMetadata(for: conversation),
                                             isSelected: viewModel.selectedConversation?.id == conversation.id
                                         )
                                         .onTapGesture {
@@ -59,8 +61,7 @@ struct SidebarView: View {
                                             }
                                             Divider()
                                             Button("Delete Chat", role: .destructive) {
-                                                viewModel.selectedConversation = conversation
-                                                viewModel.deleteSelectedConversation()
+                                                conversationPendingDeletion = conversation
                                             }
                                         }
                                     }
@@ -112,6 +113,27 @@ struct SidebarView: View {
         } message: {
             Text("Enter a new name for this conversation.")
         }
+        .confirmationDialog(
+            "Delete Chat?",
+            isPresented: Binding(
+                get: { conversationPendingDeletion != nil },
+                set: { if !$0 { conversationPendingDeletion = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let conversationPendingDeletion {
+                    viewModel.selectedConversation = conversationPendingDeletion
+                    viewModel.deleteSelectedConversation()
+                }
+                conversationPendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) {
+                conversationPendingDeletion = nil
+            }
+        } message: {
+            Text("This permanently deletes the selected chat and its messages.")
+        }
     }
 
     private var groupedConversations: [ConversationGroup] {
@@ -128,9 +150,7 @@ struct SidebarView: View {
         }
 
         let filtered = sectionFiltered.filter { conversation in
-            searchText.isEmpty ||
-            conversation.decryptedTitle.localizedCaseInsensitiveContains(searchText) ||
-            conversation.messages.contains(where: { $0.decryptedContent.localizedCaseInsensitiveContains(searchText) })
+            viewModel.matchesSearch(conversation, query: searchText)
         }
 
         return Dictionary(grouping: filtered) { conversation in
@@ -198,7 +218,7 @@ struct SidebarBrandHeader: View {
                     .frame(width: 34, height: 34)
                     .background(
                         LinearGradient(
-                            colors: [AppTheme.orange600, AppTheme.orange500],
+                            colors: [AppTheme.accentDark, AppTheme.accent],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -371,12 +391,13 @@ struct SidebarEmptyState: View {
 
 struct SidebarConversationRow: View {
     let conversation: ConversationRecord
+    let metadata: ConversationListMetadata
     let isSelected: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text(conversation.decryptedTitle)
+                Text(metadata.title)
                     .font(AppTheme.uiFont(13, weight: .medium))
                     .foregroundStyle(AppTheme.textPrimary)
                     .lineLimit(1)
@@ -384,7 +405,7 @@ struct SidebarConversationRow: View {
                 ProviderBadge(provider: conversation.provider)
             }
 
-            Text(summaryText)
+            Text(metadata.summary)
                 .font(AppTheme.uiFont(11, weight: .regular))
                 .foregroundStyle(AppTheme.textSecondary)
                 .lineLimit(1)
@@ -396,17 +417,6 @@ struct SidebarConversationRow: View {
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
     }
 
-    private var summaryText: String {
-        if let lastMessage = conversation.messages.sorted(by: { $0.createdAt > $1.createdAt }).first {
-            return String(
-                lastMessage.decryptedContent
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .replacingOccurrences(of: "\n", with: " ")
-                    .prefix(72)
-            )
-        }
-        return "No messages yet"
-    }
 }
 
 struct ProviderBadge: View {

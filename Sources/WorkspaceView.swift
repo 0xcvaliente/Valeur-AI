@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct WorkspaceView: View {
     @ObservedObject var viewModel: WorkspaceViewModel
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationSplitView {
@@ -19,6 +20,19 @@ struct WorkspaceView: View {
     private var workspaceSidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
+                Button {
+                    dismiss()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                            .font(AppTheme.uiFont(12, weight: .semibold))
+                        Text("Chat")
+                            .font(AppTheme.uiFont(13, weight: .medium))
+                    }
+                }
+                .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+                .help("Back to Chat")
+
                 Text("Workspace")
                     .font(AppTheme.headingFont(20, weight: .semibold))
                     .foregroundStyle(AppTheme.textPrimary)
@@ -57,7 +71,7 @@ struct WorkspaceView: View {
             VStack(spacing: 16) {
                 Image(systemName: "square.split.2x1")
                     .font(AppTheme.headingFont(40, weight: .semibold))
-                    .foregroundStyle(AppTheme.orange500)
+                    .foregroundStyle(AppTheme.accent)
 
                 Text("No Workspace Selected")
                     .font(AppTheme.headingFont(24, weight: .semibold))
@@ -119,6 +133,7 @@ private struct WorkspaceSidebarRow: View {
 private struct WorkspaceEditorView: View {
     @ObservedObject var viewModel: WorkspaceViewModel
     let workspace: WorkspaceRecord
+    @State private var isShowingDeleteWorkspaceAlert = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -197,7 +212,7 @@ private struct WorkspaceEditorView: View {
             .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
 
             Button(role: .destructive) {
-                viewModel.deleteSelectedWorkspace()
+                isShowingDeleteWorkspaceAlert = true
             } label: {
                 Label("Delete", systemImage: "trash")
             }
@@ -206,6 +221,14 @@ private struct WorkspaceEditorView: View {
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
         .background(AppTheme.surfacePrimary)
+        .alert("Delete Workspace?", isPresented: $isShowingDeleteWorkspaceAlert) {
+            Button("Delete", role: .destructive) {
+                viewModel.deleteSelectedWorkspace()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the selected workspace and all of its blocks.")
+        }
     }
 }
 
@@ -214,13 +237,14 @@ private struct WorkspaceBlockCardView: View {
     let block: WorkspaceBlockRecord
     @State private var isShowingRevisionSheet = false
     @State private var isShowingHistorySheet = false
+    @State private var isShowingDeleteBlockAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
                 Label(block.kind.title, systemImage: block.kind.icon)
                     .font(AppTheme.uiFont(13, weight: .semibold))
-                    .foregroundStyle(AppTheme.orange500)
+                    .foregroundStyle(AppTheme.accent)
 
                 Spacer(minLength: 0)
 
@@ -269,7 +293,7 @@ private struct WorkspaceBlockCardView: View {
                 }
 
                 Button(role: .destructive) {
-                    viewModel.deleteBlock(block)
+                    isShowingDeleteBlockAlert = true
                 } label: {
                     Image(systemName: "trash")
                         .font(AppTheme.uiFont(12, weight: .bold))
@@ -327,6 +351,14 @@ private struct WorkspaceBlockCardView: View {
             WorkspaceRevisionHistorySheet(viewModel: viewModel, block: block)
                 .frame(width: 720, height: 620)
                 .presentationBackground(AppTheme.backgroundPrimary)
+        }
+        .alert("Delete Block?", isPresented: $isShowingDeleteBlockAlert) {
+            Button("Delete", role: .destructive) {
+                viewModel.deleteBlock(block)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the selected block from the workspace.")
         }
     }
 }
@@ -488,7 +520,7 @@ private struct WorkspaceChartBlockEditorView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("Invalid chart JSON", systemImage: "exclamationmark.triangle")
                                 .font(AppTheme.uiFont(13, weight: .semibold))
-                                .foregroundStyle(AppTheme.orange500)
+                                .foregroundStyle(AppTheme.accent)
 
                             Text("Fix the JSON spec to restore the live chart preview.")
                                 .font(AppTheme.uiFont(12, weight: .medium))
@@ -625,7 +657,7 @@ private struct WorkspaceImageBlockEditorView: View {
         VStack(spacing: 10) {
             Image(systemName: "photo")
                 .font(AppTheme.headingFont(28, weight: .semibold))
-                .foregroundStyle(AppTheme.orange500)
+                .foregroundStyle(AppTheme.accent)
 
             Text(label)
                 .font(AppTheme.uiFont(13, weight: .medium))
@@ -804,7 +836,7 @@ private struct WorkspaceRevisionHistorySheet: View {
                 VStack(spacing: 10) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(AppTheme.headingFont(28, weight: .semibold))
-                        .foregroundStyle(AppTheme.orange500)
+                        .foregroundStyle(AppTheme.accent)
 
                     Text("No saved revisions yet.")
                         .font(AppTheme.uiFont(14, weight: .semibold))

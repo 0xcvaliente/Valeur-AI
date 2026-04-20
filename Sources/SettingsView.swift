@@ -42,6 +42,7 @@ struct SettingsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("settings.category.\(category.rawValue.lowercased())")
                     }
                 }
                 .padding(.vertical, 12)
@@ -53,6 +54,7 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
+                        .accessibilityIdentifier("settings.doneButton")
                 }
             }
         } detail: {
@@ -76,6 +78,8 @@ struct SettingsView: View {
         }
         .preferredColorScheme(settingsStore.appAppearance.colorScheme)
         .tint(AppTheme.accent)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("settings.root")
     }
 }
 
@@ -257,6 +261,7 @@ private struct SettingsAppearancePanel: View {
 private struct SettingsPersonalizationPanel: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @State private var isImportingMemoryDocument = false
+    @State private var isProcessingMemoryDocument = false
     @State private var saveMessage: String?
 
     var body: some View {
@@ -287,6 +292,7 @@ private struct SettingsPersonalizationPanel: View {
                         isImportingMemoryDocument = true
                     }
                     .buttonStyle(AppChromeButtonStyle(tone: .accent))
+                    .disabled(isProcessingMemoryDocument)
 
                     if settingsStore.hasMemoryDocument {
                         Button("Remove Document", role: .destructive) {
@@ -294,6 +300,17 @@ private struct SettingsPersonalizationPanel: View {
                             saveMessage = "Memory document removed."
                         }
                         .buttonStyle(AppChromeButtonStyle(tone: .secondary))
+                        .disabled(isProcessingMemoryDocument)
+                    }
+
+                    if isProcessingMemoryDocument {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Importing...")
+                                .font(AppTheme.uiFont(11, weight: .medium))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
                     }
                 }
 
@@ -328,12 +345,17 @@ private struct SettingsPersonalizationPanel: View {
             allowedContentTypes: supportedMemoryDocumentTypes,
             allowsMultipleSelection: false
         ) { result in
-            do {
-                guard let url = try result.get().first else { return }
-                try settingsStore.setMemoryDocument(from: url)
-                saveMessage = "Memory document imported successfully."
-            } catch {
-                saveMessage = error.localizedDescription
+            Task {
+                isProcessingMemoryDocument = true
+                saveMessage = nil
+                defer { isProcessingMemoryDocument = false }
+                do {
+                    guard let url = try result.get().first else { return }
+                    try await settingsStore.setMemoryDocument(from: url)
+                    saveMessage = "Memory document imported successfully."
+                } catch {
+                    saveMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -486,6 +508,7 @@ private struct SettingsDataPanel: View {
                     Label("Delete All Conversations", systemImage: "trash")
                 }
                 .buttonStyle(AppChromeButtonStyle(tone: .destructive))
+                .accessibilityIdentifier("settings.deleteAllConversations")
                 .alert(
                     "Delete All Conversations?",
                     isPresented: $showDeleteAllAlert

@@ -133,7 +133,7 @@ struct ComposerView: View {
                 } else if let draftAttachmentSupportMessage = viewModel.draftAttachmentSupportMessage {
                     Text(draftAttachmentSupportMessage)
                         .font(AppTheme.uiFont(11, weight: .medium))
-                        .foregroundStyle(AppTheme.orange500)
+                        .foregroundStyle(AppTheme.accent)
                         .padding(.horizontal, 14)
                         .padding(.top, 6)
                 }
@@ -390,7 +390,7 @@ private struct TokenContextBadge: View {
                     .trim(from: 0, to: max(usageFraction, 0.01))
                     .stroke(
                         AngularGradient(
-                            colors: [AppTheme.orange600, AppTheme.orange500, AppTheme.orange600],
+                            colors: [AppTheme.accentDark, AppTheme.accent, AppTheme.accentDark],
                             center: .center
                         ),
                         style: StrokeStyle(lineWidth: 4, lineCap: .round)
@@ -539,12 +539,12 @@ struct ComposerChipButton: View {
                     .font(AppTheme.uiFont(12, weight: .semibold))
             }
         }
-        .foregroundStyle(isActive ? AppTheme.orange500 : AppTheme.textSecondary)
+        .foregroundStyle(isActive ? AppTheme.accent : AppTheme.textSecondary)
         .padding(.horizontal, 12)
         .frame(height: 34)
         .background(
             isActive
-                ? AppTheme.orange500.opacity(0.10)
+                ? AppTheme.accent.opacity(0.10)
                 : AppTheme.surfaceSecondary
         )
         .clipShape(Capsule())
@@ -564,7 +564,7 @@ struct ComposerCircleButton: View {
                 .fill(
                     isProminent
                         ? AnyShapeStyle(LinearGradient(
-                            colors: [AppTheme.orange600, AppTheme.orange500],
+                            colors: [AppTheme.accentDark, AppTheme.accent],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ))

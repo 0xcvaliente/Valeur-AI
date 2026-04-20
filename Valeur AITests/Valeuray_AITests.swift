@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Valeur_AI
 
@@ -549,5 +550,485 @@ struct MarkdownBlockArtifactTests {
         default:
             Issue.record("Expected chart fence to fall back to code block")
         }
+    }
+}
+
+@MainActor
+struct ConversationListMetadataTests {
+
+    @Test func metadataUsesTrimmedTitleLatestSummaryAndSearchableText() throws {
+        let conversation = ConversationRecord(
+            storedTitle: try MessageEncryption.shared.encryptString("  Product Roadmap  ")
+        )
+        let user = MessageRecord(
+            role: .user,
+            storedContent: try MessageEncryption.shared.encryptString("Outline the launch plan"),
+            conversation: conversation
+        )
+        let assistant = MessageRecord(
+            role: .assistant,
+            storedContent: try MessageEncryption.shared.encryptString("\nNext steps and owners\n"),
+            conversation: conversation
+        )
+        conversation.messages = [user, assistant]
+
+        let metadata = ConversationListMetadata.make(for: conversation)
+
+        #expect(metadata.title == "Product Roadmap")
+        #expect(metadata.summary == "Next steps and owners")
+        #expect(metadata.searchableText.contains("product roadmap"))
+        #expect(metadata.searchableText.contains("outline the launch plan"))
+    }
+
+    @Test func metadataFallsBackWhenConversationIsEmpty() throws {
+        let conversation = ConversationRecord(
+            storedTitle: try MessageEncryption.shared.encryptString("   ")
+        )
+
+        let metadata = ConversationListMetadata.make(for: conversation)
+
+        #expect(metadata.title == "New Chat")
+        #expect(metadata.summary == "No messages yet")
+    }
+}
+
+struct SecureFileAccessTests {
+
+    @Test func readsPlainTextFileAsynchronously() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let url = directory.appendingPathComponent("notes.txt")
+        try Data("Quarterly planning".utf8).write(to: url, options: .atomic)
+
+        let text = try await SecureFileAccess.text(from: url)
+
+        #expect(text == "Quarterly planning")
+    }
+
+    @Test func settingsStoreImportsMemoryDocumentAsynchronously() async throws {
+        let defaultsSuite = "SettingsStoreImportsMemoryDocumentAsynchronously"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let url = directory.appendingPathComponent("memory.txt")
+        try Data("Customer prefers concise weekly updates".utf8).write(to: url, options: .atomic)
+
+        let settings = await MainActor.run {
+            guard let defaults = UserDefaults(suiteName: defaultsSuite) else {
+                Issue.record("Could not create isolated defaults suite")
+                return SettingsStore(keychain: KeychainService())
+            }
+            defaults.removePersistentDomain(forName: defaultsSuite)
+            return SettingsStore(keychain: KeychainService(), defaults: defaults)
+        }
+
+        try await settings.setMemoryDocument(from: url)
+
+        await MainActor.run {
+            #expect(settings.hasMemoryDocument)
+            #expect(settings.memoryDocumentSummary?.contains("memory.txt") == true)
+            UserDefaults(suiteName: defaultsSuite)?.removePersistentDomain(forName: defaultsSuite)
+        }
+    }
+}
+
+@MainActor
+struct AppStatePersistenceWarningTests {
+
+    @Test func initializerKeepsPersistenceWarningMessage() {
+        let settings = SettingsStore(keychain: KeychainService(), defaults: UserDefaults(suiteName: "AppStatePersistenceWarningTests")!)
+        let state = AppState(
+            settingsStore: settings,
+            serviceFactory: LLMServiceFactory(settingsStore: settings),
+            persistenceWarningMessage: "Running in memory only"
+        )
+
+        #expect(state.persistenceWarningMessage == "Running in memory only")
+    }
+}
+
+@MainActor
+struct ConversationRepositoryIntegrationTests {
+
+    @Test func appendUpdateRetitleAndDeleteConversationPersistsExpectedState() throws {
+        let repository = try makeRepository()
+        let conversation = try repository.createConversation(provider: .openAI)
+
+        #expect(conversation.decryptedTitle == "New Chat")
+
+        let userMessage = try repository.appendMessage(
+            role: .user,
+            content: "Plan the launch checklist for next week.",
+            to: conversation
+        )
+        let assistantMessage = try repository.appendMessage(
+            role: .assistant,
+            content: "I will draft a checklist and timeline.",
+            to: conversation
+        )
+
+        try repository.updateMessage(assistantMessage, content: "Checklist ready for review.")
+        try repository.retitleConversationIfNeeded(conversation)
+
+        let conversations = try repository.fetchConversations()
+
+        #expect(conversations.count == 1)
+        #expect(conversations[0].messages.count == 2)
+        #expect(conversations[0].decryptedTitle == "Plan the launch checklist for next week.")
+        #expect(conversations[0].persistedInputTokenCount ?? 0 > 0)
+        #expect(conversations[0].persistedOutputTokenCount ?? 0 > 0)
+
+        try repository.deleteMessage(userMessage)
+        #expect(conversation.messages.count == 1)
+
+        try repository.deleteConversation(conversation)
+        #expect(try repository.fetchConversations().isEmpty)
+    }
+
+    @Test func fetchConversationsMigratesLegacyPlaintextFields() throws {
+        let container = try Self.makeContainer()
+        let context = ModelContext(container)
+        let conversation = ConversationRecord(
+            storedTitle: "Legacy Chat",
+            provider: .anthropic,
+            storedSystemPromptOverride: "Legacy system prompt"
+        )
+        let message = MessageRecord(
+            role: .user,
+            storedContent: "Legacy plaintext body",
+            conversation: conversation
+        )
+        conversation.messages = [message]
+        context.insert(conversation)
+        context.insert(message)
+        try context.save()
+
+        let repository = ConversationRepository(context: context)
+        let conversations = try repository.fetchConversations()
+
+        #expect(conversations.count == 1)
+        #expect(conversations[0].decryptedTitle == "Legacy Chat")
+        #expect(conversations[0].resolvedSystemPrompt == "Legacy system prompt")
+        #expect(conversations[0].messages.first?.decryptedContent == "Legacy plaintext body")
+        #expect(MessageEncryption.shared.isEncryptedString(conversations[0].title))
+        #expect(MessageEncryption.shared.isEncryptedString(conversations[0].systemPromptOverride))
+        #expect(MessageEncryption.shared.isEncryptedString(conversations[0].messages[0].content))
+    }
+
+    private func makeRepository() throws -> ConversationRepository {
+        let container = try Self.makeContainer()
+        return ConversationRepository(context: ModelContext(container))
+    }
+
+    private static func makeContainer() throws -> ModelContainer {
+        try ModelContainer(
+            for: ConversationRecord.self,
+            MessageRecord.self,
+            WorkspaceRecord.self,
+            WorkspaceBlockRecord.self,
+            WorkspaceBlockRevisionRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+    }
+}
+
+@MainActor
+struct ProviderServiceIntegrationTests {
+
+    @Test func streamResponseRejectsMissingAPIKeysBeforeNetworkAccess() async {
+        let request = ChatRequest(
+            messages: [ChatMessagePayload(role: .user, content: "Hello")],
+            systemPrompt: nil,
+            model: "gpt-5.4-mini",
+            allowsWebSearch: false
+        )
+
+        await assertMissingAPIKey(
+            from: OpenAIService(apiKey: "").streamResponse(for: request),
+            providerName: "OpenAI"
+        )
+        await assertMissingAPIKey(
+            from: AnthropicService(apiKey: "").streamResponse(for: request),
+            providerName: "Anthropic"
+        )
+        await assertMissingAPIKey(
+            from: GeminiService(apiKey: "").streamResponse(for: request),
+            providerName: "Google Gemini"
+        )
+    }
+
+    @Test func imageGenerationRejectsMissingOpenAIAPIKeyBeforeNetworkAccess() async throws {
+        do {
+            _ = try await OpenAIService(apiKey: "").generateImage(
+                for: ImageGenerationRequest(
+                    prompt: "Generate a product concept render",
+                    model: "gpt-image-1",
+                    size: .square
+                )
+            )
+            Issue.record("Expected generateImage to fail when API key is missing")
+        } catch let error as ServiceError {
+            switch error {
+            case .missingAPIKey(let providerName):
+                #expect(providerName == "OpenAI")
+            default:
+                Issue.record("Expected missingAPIKey error, got \(error.localizedDescription)")
+            }
+        } catch {
+            Issue.record("Expected ServiceError, got \(error.localizedDescription)")
+        }
+    }
+
+    private func assertMissingAPIKey(
+        from stream: AsyncThrowingStream<LLMStreamEvent, Error>,
+        providerName: String
+    ) async {
+        do {
+            for try await _ in stream {
+            }
+            Issue.record("Expected stream to fail for \(providerName)")
+        } catch let error as ServiceError {
+            switch error {
+            case .missingAPIKey(let resolvedProviderName):
+                #expect(resolvedProviderName == providerName)
+            default:
+                Issue.record("Expected missingAPIKey for \(providerName), got \(error.localizedDescription)")
+            }
+        } catch {
+            Issue.record("Expected ServiceError for \(providerName), got \(error.localizedDescription)")
+        }
+    }
+}
+
+struct ProviderStreamParserFixtureTests {
+
+    @Test func openAIParsesTokenStatusAndRecoveredOutputFixtures() throws {
+        let tokenEvents = try ProviderStreamParserTestHarness.parseOpenAIEvent(#"{"type":"response.output_text.delta","delta":"Hello"}"#)
+        let statusEvents = try ProviderStreamParserTestHarness.parseOpenAIEvent(#"{"type":"response.step.created"}"#)
+        let recoveredEvents = try ProviderStreamParserTestHarness.recoverOpenAINonStreamingBody(#"{"output":[{"role":"assistant","content":[{"type":"output_text","text":"Recovered answer"}]}]}"#)
+
+        #expect(eventDescriptions(tokenEvents) == ["token:Hello"])
+        #expect(eventDescriptions(statusEvents) == ["status:Searching the web..."])
+        #expect(eventDescriptions(recoveredEvents) == ["token:Recovered answer"])
+    }
+
+    @Test func openAIFixtureSurfacesProviderErrorMessage() throws {
+        do {
+            _ = try ProviderStreamParserTestHarness.parseOpenAIEvent(#"{"type":"response.completed","response":{"error":{"message":"rate limited","code":"429"}}}"#)
+            Issue.record("Expected provider message error")
+        } catch let error as ServiceError {
+            switch error {
+            case .providerMessage(let message):
+                #expect(message.contains("rate limited"))
+                #expect(message.contains("429"))
+            default:
+                Issue.record("Expected providerMessage, got \(error.localizedDescription)")
+            }
+        }
+    }
+
+    @Test func anthropicParsesTokenStatusAndFinishedFixtures() throws {
+        let tokenEvents = try ProviderStreamParserTestHarness.parseAnthropicEvent(
+            name: "content_block_delta",
+            data: #"{"delta":{"text":"Thinking through it"}}"#
+        )
+        let statusEvents = try ProviderStreamParserTestHarness.parseAnthropicEvent(
+            name: "content_block_start",
+            data: #"{"content_block":{"type":"tool_use"}}"#
+        )
+        let finishedEvents = try ProviderStreamParserTestHarness.parseAnthropicEvent(
+            name: "message_stop",
+            data: "{}"
+        )
+
+        #expect(eventDescriptions(tokenEvents) == ["token:Thinking through it"])
+        #expect(eventDescriptions(statusEvents) == ["status:Using tool..."])
+        #expect(eventDescriptions(finishedEvents) == ["finished"])
+    }
+
+    @Test func geminiParsesTokenAndRecoveredProviderErrorFixtures() throws {
+        let tokenEvents = try ProviderStreamParserTestHarness.parseGeminiEvent(#"{"candidates":[{"content":{"parts":[{"text":"Part one"},{"text":" and two"}]}}]}"#)
+
+        #expect(eventDescriptions(tokenEvents) == ["token:Part one", "token: and two"])
+
+        do {
+            _ = try ProviderStreamParserTestHarness.recoverGeminiNonStreamingBody(#"{"error":{"message":"quota exceeded"}}"#)
+            Issue.record("Expected Gemini provider error")
+        } catch let error as ServiceError {
+            switch error {
+            case .providerMessage(let message):
+                #expect(message.contains("quota exceeded"))
+            default:
+                Issue.record("Expected providerMessage, got \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func eventDescriptions(_ events: [LLMStreamEvent]) -> [String] {
+        events.map { event in
+            switch event {
+            case .started:
+                return "started"
+            case .token(let token):
+                return "token:\(token)"
+            case .status(let status):
+                return "status:\(status)"
+            case .finished:
+                return "finished"
+            }
+        }
+    }
+}
+
+struct ProviderRequestBodyFixtureTests {
+
+    @Test func openAIRequestBodyIncludesInstructionsToolsAndImageParts() throws {
+        let imageData = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6Zz14AAAAASUVORK5CYII=")!
+        let request = ChatRequest(
+            messages: [
+                ChatMessagePayload(
+                    role: .user,
+                    content: "Inspect this image",
+                    attachments: [MessageAttachment(data: imageData, mimeType: "image/png")]
+                )
+            ],
+            systemPrompt: "Be precise",
+            model: "gpt-5.4-mini",
+            allowsWebSearch: true
+        )
+
+        let json = try ProviderStreamParserTestHarness.openAIRequestBody(for: request)
+
+        #expect(json["model"] as? String == "gpt-5.4-mini")
+        #expect(json["instructions"] as? String == "Be precise")
+        #expect((json["tools"] as? [[String: Any]])?.first?["type"] as? String == "web_search")
+
+        let input = try #require(json["input"] as? [[String: Any]])
+        let content = try #require(input.first?["content"] as? [[String: Any]])
+        #expect(content.first?["type"] as? String == "input_text")
+        #expect(content.last?["type"] as? String == "input_image")
+    }
+
+    @Test func anthropicRequestBodyIncludesSystemAndDocumentParts() throws {
+        let pdfData = Data("pdf".utf8)
+        let request = ChatRequest(
+            messages: [
+                ChatMessagePayload(
+                    role: .user,
+                    content: "Summarize the document",
+                    attachments: [MessageAttachment(data: pdfData, mimeType: "application/pdf")]
+                )
+            ],
+            systemPrompt: "Answer briefly",
+            model: "claude-sonnet-4-6",
+            allowsWebSearch: false
+        )
+
+        let json = try ProviderStreamParserTestHarness.anthropicRequestBody(for: request)
+
+        #expect(json["model"] as? String == "claude-sonnet-4-6")
+        #expect(json["system"] as? String == "Answer briefly")
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        let parts = try #require(messages.first?["content"] as? [[String: Any]])
+        #expect(parts.first?["type"] as? String == "document")
+        #expect(parts.last?["type"] as? String == "text")
+    }
+
+    @Test func geminiRequestBodyIncludesSystemSearchAndInlineData() throws {
+        let imageData = Data("image".utf8)
+        let request = ChatRequest(
+            messages: [
+                ChatMessagePayload(
+                    role: .user,
+                    content: "Analyze this",
+                    attachments: [MessageAttachment(data: imageData, mimeType: "image/png")]
+                )
+            ],
+            systemPrompt: "Use concise bullet points",
+            model: "gemini-2.5-flash",
+            allowsWebSearch: true
+        )
+
+        let json = try ProviderStreamParserTestHarness.geminiRequestBody(for: request)
+
+        let systemInstruction = try #require(json["systemInstruction"] as? [String: Any])
+        let instructionParts = try #require(systemInstruction["parts"] as? [[String: Any]])
+        #expect(instructionParts.first?["text"] as? String == "Use concise bullet points")
+        #expect((json["tools"] as? [[String: Any]])?.first?["googleSearch"] as? [String: Any] != nil)
+
+        let contents = try #require(json["contents"] as? [[String: Any]])
+        let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+        let inlineData = try #require(parts.last?["inlineData"] as? [String: Any])
+        #expect(inlineData["mimeType"] as? String == "image/png")
+    }
+}
+
+struct SSEParserByteStreamTests {
+
+    @Test func parsesMultiLineAndFragmentedEventsFromBytes() async throws {
+        let events = try await parseEvents(from: "event: update\ndata: first line\ndata: second line\n\ndata: final\n\n")
+
+        #expect(events.count == 2)
+
+        if case .message(let name, let data) = events[0] {
+            #expect(name == "update")
+            #expect(data == "first line\nsecond line")
+        } else {
+            Issue.record("Expected first SSE event")
+        }
+
+        if case .message(let name, let data) = events[1] {
+            #expect(name == nil)
+            #expect(data == "final")
+        } else {
+            Issue.record("Expected second SSE event")
+        }
+    }
+
+    @Test func parsesCRLFAndTrailingEventWithoutFinalBlankLine() async throws {
+        let events = try await parseEvents(from: "event: status\r\ndata: working\r\n\r\ndata: trailing")
+
+        #expect(events.count == 2)
+        if case .message(let name, let data) = events[0] {
+            #expect(name == "status")
+            #expect(data == "working")
+        }
+        if case .message(let name, let data) = events[1] {
+            #expect(name == nil)
+            #expect(data == "trailing")
+        }
+    }
+
+    @Test func rejectsTooManyBufferedLines() async {
+        let payload = Array(repeating: "data: x", count: 1_001).joined(separator: "\n") + "\n"
+
+        do {
+            _ = try await parseEvents(from: payload)
+            Issue.record("Expected tooManyBufferedLines error")
+        } catch let error as SSEParserError {
+            #expect(error == .tooManyBufferedLines)
+        } catch {
+            Issue.record("Expected SSEParserError, got \(error.localizedDescription)")
+        }
+    }
+
+    private func parseEvents(from text: String) async throws -> [SSEEvent] {
+        let stream = AsyncStream<UInt8> { continuation in
+            for byte in text.utf8 {
+                continuation.yield(byte)
+            }
+            continuation.finish()
+        }
+
+        var events: [SSEEvent] = []
+        for try await event in SSEParser.events(from: stream) {
+            events.append(event)
+        }
+        return events
     }
 }

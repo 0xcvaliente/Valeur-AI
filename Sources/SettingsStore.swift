@@ -103,7 +103,7 @@ final class SettingsStore: ObservableObject {
         ensureSelectedModel(for: defaultProvider)
     }
 
-    static func normalizeFontFamilyName(_ rawValue: String?) -> String {
+    nonisolated static func normalizeFontFamilyName(_ rawValue: String?) -> String {
         let trimmed = (rawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return AppTheme.nexaFontFamilyName }
 
@@ -190,8 +190,8 @@ final class SettingsStore: ObservableObject {
         return "\(memoryDocumentName) • \(label)"
     }
 
-    func setMemoryDocument(from url: URL) throws {
-        let extracted = try Self.extractDocumentText(from: url)
+    func setMemoryDocument(from url: URL) async throws {
+        let extracted = try await Self.extractDocumentText(from: url)
         let normalized = Self.normalizeMemoryText(extracted)
         guard !normalized.isEmpty else {
             throw PersonalizationError.emptyDocument
@@ -315,33 +315,29 @@ final class SettingsStore: ObservableObject {
         min(max(value, 16_000), 4_000_000)
     }
 
-    private static func extractDocumentText(from url: URL) throws -> String {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer {
-            if accessed {
-                url.stopAccessingSecurityScopedResource()
+    private static func extractDocumentText(from url: URL) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed {
+                    url.stopAccessingSecurityScopedResource()
+                }
             }
-        }
 
-        if url.pathExtension.lowercased() == "pdf" {
-            guard let document = PDFDocument(url: url), let text = document.string else {
-                throw PersonalizationError.unsupportedDocument
-            }
-            return text
-        }
-
-        if let text = try? String(contentsOf: url, encoding: .utf8) {
-            return text
-        }
-
-        let data = try Data(contentsOf: url)
-        for encoding in [String.Encoding.utf8, .unicode, .ascii, .isoLatin1] {
-            if let text = String(data: data, encoding: encoding) {
+            if url.pathExtension.lowercased() == "pdf" {
+                let data = try Data(contentsOf: url)
+                guard let document = PDFDocument(data: data), let text = document.string else {
+                    throw PersonalizationError.unsupportedDocument
+                }
                 return text
             }
-        }
 
-        throw PersonalizationError.unsupportedDocument
+            if let text = try await SecureFileAccess.text(from: url) {
+                return text
+            }
+
+            throw PersonalizationError.unsupportedDocument
+        }.value
     }
 
     private static func normalizeMemoryText(_ text: String) -> String {
@@ -372,6 +368,8 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     case light
     case system
     case marineBlue
+    case orange
+    case blue
 
     var id: String { rawValue }
 
@@ -380,15 +378,23 @@ enum AppAppearance: String, CaseIterable, Identifiable {
         case .light: "Light"
         case .system: "System"
         case .marineBlue: "Dark"
+        case .orange: "Orange"
+        case .blue: "Blue"
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
-        case .light: .light
+        case .light, .orange: .light
         case .system: nil
-        case .marineBlue: .dark
+        case .marineBlue, .blue: .dark
         }
+    }
+
+    var usesBlueAccent: Bool { self == .blue }
+
+    static var current: AppAppearance {
+        AppAppearance(rawValue: UserDefaults.standard.string(forKey: "settings.appAppearance") ?? "") ?? .light
     }
 }
 

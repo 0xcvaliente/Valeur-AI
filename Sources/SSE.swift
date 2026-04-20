@@ -22,7 +22,7 @@ struct SSEParser {
     private static let maxLineBytes = 1 * 1024 * 1024
     private static let maxBufferLines = 1_000
 
-    static func events(from bytes: URLSession.AsyncBytes) -> AsyncThrowingStream<SSEEvent, Error> {
+    static func events<S: AsyncSequence>(from bytes: S) -> AsyncThrowingStream<SSEEvent, Error> where S.Element == UInt8 {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -74,7 +74,7 @@ struct SSEParser {
         }
     }
 
-    private static func makeEvent(from lines: [String]) -> SSEEvent? {
+    fileprivate static func makeEvent(from lines: [String]) -> SSEEvent? {
         guard !lines.isEmpty else { return nil }
         var eventName: String?
         var dataParts: [String] = []

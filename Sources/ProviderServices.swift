@@ -43,7 +43,7 @@ struct OpenAIService: LLMService {
         return try await parseOpenAIImageResponse(from: json)
     }
 
-    private func openAIBody(for request: ChatRequest) throws -> Data {
+    fileprivate func openAIBody(for request: ChatRequest) throws -> Data {
         var body: [String: Any] = [
             "model": request.model,
             "stream": true,
@@ -102,7 +102,7 @@ struct OpenAIService: LLMService {
         ], provider: provider)
     }
 
-    private func parseOpenAIEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
+    fileprivate func parseOpenAIEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
         guard case .message(_, let data) = event else { return [] }
         let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return [] }
@@ -217,7 +217,7 @@ struct AnthropicService: LLMService {
         }
     }
 
-    private func anthropicBody(for request: ChatRequest) throws -> Data {
+    fileprivate func anthropicBody(for request: ChatRequest) throws -> Data {
         let messages = request.messages.map { message -> [String: Any] in
             var content: Any = message.content
             if let attachments = message.attachments, !attachments.isEmpty {
@@ -263,7 +263,7 @@ struct AnthropicService: LLMService {
         return try jsonBody(body, provider: provider)
     }
 
-    private func parseAnthropicEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
+    fileprivate func parseAnthropicEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
         guard case .message(let name, let data) = event else { return [] }
         if name == "message_stop" { return [.finished] }
         let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -320,7 +320,7 @@ struct GeminiService: LLMService {
         }
     }
 
-    private func geminiBody(for request: ChatRequest) throws -> Data {
+    fileprivate func geminiBody(for request: ChatRequest) throws -> Data {
         let contents = request.messages.map { message -> [String: Any] in
             var parts: [[String: Any]] = []
             if !message.content.isEmpty {
@@ -362,7 +362,7 @@ struct GeminiService: LLMService {
         return try jsonBody(body, provider: provider)
     }
 
-    private func parseGeminiEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
+    fileprivate func parseGeminiEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
         guard case .message(_, let data) = event else { return [] }
         let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return [] }
@@ -390,6 +390,55 @@ struct GeminiService: LLMService {
             }
         }
         return events
+    }
+}
+
+enum ProviderStreamParserTestHarness {
+    private static func decodeJSONBody(_ data: Data) throws -> [String: Any] {
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ServiceError.invalidResponse
+        }
+        return json
+    }
+
+    static func parseOpenAIEvent(_ data: String) throws -> [LLMStreamEvent] {
+        try OpenAIService(apiKey: "test-key").parseOpenAIEvent(.message(event: nil, data: data))
+    }
+
+    static func parseAnthropicEvent(name: String?, data: String) throws -> [LLMStreamEvent] {
+        try AnthropicService(apiKey: "test-key").parseAnthropicEvent(.message(event: name, data: data))
+    }
+
+    static func parseGeminiEvent(_ data: String) throws -> [LLMStreamEvent] {
+        try GeminiService(apiKey: "test-key").parseGeminiEvent(.message(event: nil, data: data))
+    }
+
+    static func recoverOpenAINonStreamingBody(_ body: String) throws -> [LLMStreamEvent] {
+        try recoverEventsFromNonStreamingBody(
+            provider: .openAI,
+            responseBody: body,
+            parser: { try OpenAIService(apiKey: "test-key").parseOpenAIEvent($0) }
+        )
+    }
+
+    static func recoverGeminiNonStreamingBody(_ body: String) throws -> [LLMStreamEvent] {
+        try recoverEventsFromNonStreamingBody(
+            provider: .gemini,
+            responseBody: body,
+            parser: { try GeminiService(apiKey: "test-key").parseGeminiEvent($0) }
+        )
+    }
+
+    static func openAIRequestBody(for request: ChatRequest) throws -> [String: Any] {
+        try decodeJSONBody(try OpenAIService(apiKey: "test-key").openAIBody(for: request))
+    }
+
+    static func anthropicRequestBody(for request: ChatRequest) throws -> [String: Any] {
+        try decodeJSONBody(try AnthropicService(apiKey: "test-key").anthropicBody(for: request))
+    }
+
+    static func geminiRequestBody(for request: ChatRequest) throws -> [String: Any] {
+        try decodeJSONBody(try GeminiService(apiKey: "test-key").geminiBody(for: request))
     }
 }
 

@@ -21,6 +21,20 @@
                ReferencedContainer = "container:valeuray.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "52F58D5F2F8EAFDE007EAE5F"
+               BuildableName = "Valeur AIUITests.xctest"
+               BlueprintName = "Valeur AIUITests"
+               ReferencedContainer = "container:valeuray.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -28,7 +42,7 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldAutocreateTestPlan = "NO">
       <Testables>
          <TestableReference
             skipped = "NO"
@@ -39,6 +53,18 @@
                BlueprintIdentifier = "52F58D552F8EAFDE007EAE5F"
                BuildableName = "Valeur AITests.xctest"
                BlueprintName = "Valeur AITests"
+               ReferencedContainer = "container:valeuray.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO"
+            testExecutionOrdering = "random">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "52F58D5F2F8EAFDE007EAE5F"
+               BuildableName = "Valeur AIUITests.xctest"
+               BlueprintName = "Valeur AIUITests"
                ReferencedContainer = "container:valeuray.xcodeproj">
             </BuildableReference>
          </TestableReference>

@@ -15,6 +15,12 @@ enum AppTheme {
     static let orange600 = Color(red: 208.0 / 255.0, green: 82.0 / 255.0, blue: 24.0 / 255.0)
     static let orange700 = Color(red: 162.0 / 255.0, green: 56.0 / 255.0, blue: 10.0 / 255.0)
 
+    // Blue accent
+    static let blue400 = Color(red: 96.0 / 255.0, green: 165.0 / 255.0, blue: 250.0 / 255.0)
+    static let blue500 = Color(red: 59.0 / 255.0, green: 130.0 / 255.0, blue: 246.0 / 255.0)
+    static let blue600 = Color(red: 37.0 / 255.0, green: 99.0 / 255.0, blue: 235.0 / 255.0)
+    static let blue700 = Color(red: 29.0 / 255.0, green: 78.0 / 255.0, blue: 216.0 / 255.0)
+
     private static let chromeLight = nsColor(red: 250, green: 250, blue: 250)
     private static let chromeDark = nsColor(red: 14, green: 14, blue: 14)
     private static let chromeElevatedLight = nsColor(red: 255, green: 255, blue: 255)
@@ -92,11 +98,15 @@ enum AppTheme {
         light: orange600,
         dark: orange400
     )
-    static let accent = orange500
-    static let accentStrong = dynamic(
-        light: orange600,
-        dark: orange400
-    )
+    static var accent: Color { AppAppearance.current.usesBlueAccent ? blue500 : orange500 }
+    static var accentDark: Color { AppAppearance.current.usesBlueAccent ? blue600 : orange600 }
+    static var accentBorder: Color { AppAppearance.current.usesBlueAccent ? blue700 : orange700 }
+    static var accentLight: Color { AppAppearance.current.usesBlueAccent ? blue400 : orange400 }
+    static var accentStrong: Color {
+        AppAppearance.current.usesBlueAccent
+            ? dynamic(light: blue600, dark: blue400)
+            : dynamic(light: orange600, dark: orange400)
+    }
     static let windowChromeNSColor = dynamicNSColor(
         light: chromeLight,
         dark: chromeDark
@@ -185,7 +195,8 @@ enum AppTheme {
     }
 
     private static var currentFontFamilyName: String {
-        SettingsStore.normalizeFontFamilyName(UserDefaults.standard.string(forKey: "settings.appFontFamily"))
+        let storedValue = UserDefaults.standard.string(forKey: "settings.appFontFamily")
+        return SettingsStore.normalizeFontFamilyName(storedValue)
     }
 
     static func installedFontFamilyNames() -> [String] {
@@ -335,8 +346,8 @@ struct AppChromeButtonStyle: ButtonStyle {
             return AnyShapeStyle(
                 LinearGradient(
                     colors: [
-                        AppTheme.orange600.opacity(isPressed ? 0.92 : 1.0),
-                        AppTheme.orange500.opacity(isPressed ? 0.92 : 1.0)
+                        AppTheme.accentDark.opacity(isPressed ? 0.92 : 1.0),
+                        AppTheme.accent.opacity(isPressed ? 0.92 : 1.0)
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -361,7 +372,7 @@ struct AppChromeButtonStyle: ButtonStyle {
     private func borderColor(_ isPressed: Bool) -> Color {
         switch tone {
         case .accent:
-            return AppTheme.orange700.opacity(isPressed ? 0.65 : 0.78)
+            return AppTheme.accentBorder.opacity(isPressed ? 0.65 : 0.78)
         case .secondary:
             return AppTheme.border
         case .destructive:

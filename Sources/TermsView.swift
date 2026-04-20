@@ -16,6 +16,8 @@ struct TermsView: View {
         }
         .frame(width: 600, height: 560)
         .background(AppTheme.backgroundPrimary)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("terms.root")
     }
 
     private var header: some View {
@@ -24,6 +26,7 @@ struct TermsView: View {
             Text("Terms & Conditions")
                 .font(AppTheme.headingFont(20, weight: .semibold))
                 .foregroundStyle(AppTheme.textPrimary)
+                .accessibilityIdentifier("terms.title")
             Text("Please read and accept the terms before using Valeur AI.")
                 .font(AppTheme.uiFont(13))
                 .foregroundStyle(AppTheme.textSecondary)
@@ -69,6 +72,7 @@ struct TermsView: View {
                     .foregroundStyle(AppTheme.textPrimary)
             }
             .toggleStyle(.checkbox)
+            .accessibilityIdentifier("terms.agreeCheckbox")
 
             HStack(spacing: 12) {
                 Button("Decline") {
@@ -85,6 +89,7 @@ struct TermsView: View {
                 }
                 .buttonStyle(AcceptButtonStyle())
                 .disabled(!didAgree)
+                .accessibilityIdentifier("terms.acceptButton")
             }
         }
         .padding(.horizontal, 24)

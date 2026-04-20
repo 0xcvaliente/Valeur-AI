@@ -150,7 +150,7 @@ struct StatusBubbleView: View {
         HStack(spacing: 10) {
             Image(systemName: "sparkles")
                 .font(AppTheme.uiFont(13, weight: .medium))
-                .foregroundStyle(AppTheme.orange500)
+                .foregroundStyle(AppTheme.accent)
                 .rotationEffect(.degrees(isAnimating ? 15 : -15))
                 .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isAnimating)
 
@@ -441,7 +441,7 @@ struct TokenUsageRingView: View {
                     .trim(from: 0, to: max(usageFraction, 0.01))
                     .stroke(
                         AngularGradient(
-                            colors: [AppTheme.orange600, AppTheme.orange500, AppTheme.orange600],
+                            colors: [AppTheme.accentDark, AppTheme.accent, AppTheme.accentDark],
                             center: .center
                         ),
                         style: StrokeStyle(lineWidth: 10, lineCap: .round)

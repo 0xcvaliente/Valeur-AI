@@ -11,17 +11,49 @@ final class AppState: ObservableObject {
     @Published var draftMessage = ""
     @Published var isStreaming = false
     @Published var lastError: String?
+    @Published var persistenceWarningMessage: String?
 
     let settingsStore: SettingsStore
     let serviceFactory: LLMServiceFactory
 
-    init(settingsStore: SettingsStore, serviceFactory: LLMServiceFactory) {
+    init(
+        settingsStore: SettingsStore,
+        serviceFactory: LLMServiceFactory,
+        persistenceWarningMessage: String? = nil
+    ) {
         self.settingsStore = settingsStore
         self.serviceFactory = serviceFactory
+        self.persistenceWarningMessage = persistenceWarningMessage
     }
 
     func select(_ conversation: ConversationRecord?) {
         selectedConversationID = conversation?.id
+    }
+}
+
+struct ConversationListMetadata: Equatable {
+    let title: String
+    let summary: String
+    let searchableText: String
+
+    static func make(for conversation: ConversationRecord) -> ConversationListMetadata {
+        let title = conversation.decryptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedTitle = title.isEmpty ? "New Chat" : title
+        let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
+        let summary = sortedMessages.last.map { message in
+            let trimmed = message.decryptedContent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+            return trimmed.isEmpty ? "No messages yet" : String(trimmed.prefix(72))
+        } ?? "No messages yet"
+        let searchableText = ([resolvedTitle] + sortedMessages.map(\.decryptedContent))
+            .joined(separator: "\n")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return ConversationListMetadata(
+            title: resolvedTitle,
+            summary: summary,
+            searchableText: searchableText
+        )
     }
 }
 
@@ -97,6 +129,7 @@ final class ChatViewModel: ObservableObject {
     private var activeStreamTask: Task<Void, Never>?
     private var securityScopedDraftAttachmentPaths: Set<String> = []
     private var temporaryDraftAttachmentPaths: Set<String> = []
+    private var conversationListMetadata: [UUID: ConversationListMetadata] = [:]
 
     init(appState: AppState, repository: ConversationRepository) {
         self.appState = appState
@@ -106,6 +139,9 @@ final class ChatViewModel: ObservableObject {
     func load() {
         do {
             conversations = try repository.fetchConversations()
+            conversationListMetadata = Dictionary(
+                uniqueKeysWithValues: conversations.map { ($0.id, ConversationListMetadata.make(for: $0)) }
+            )
             if selectedConversation == nil {
                 selectedConversation = conversations.first
             } else if let id = selectedConversation?.id {
@@ -370,6 +406,18 @@ final class ChatViewModel: ObservableObject {
         composerText = message.decryptedContent
     }
 
+    func sidebarMetadata(for conversation: ConversationRecord) -> ConversationListMetadata {
+        conversationListMetadata[conversation.id] ?? ConversationListMetadata.make(for: conversation)
+    }
+
+    func matchesSearch(_ conversation: ConversationRecord, query: String) -> Bool {
+        let normalizedQuery = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        guard !normalizedQuery.isEmpty else { return true }
+        return sidebarMetadata(for: conversation).searchableText.contains(normalizedQuery)
+    }
+
     var canRetry: Bool {
         guard let selectedConversation,
               let lastAssistantMessage = lastAssistantMessage(in: selectedConversation) else {
@@ -503,7 +551,7 @@ final class ChatViewModel: ObservableObject {
         lastGenerationDuration = nil
 
         do {
-            let msgAttachments = try buildMessageAttachments(from: attachments)
+            let msgAttachments = try await buildMessageAttachments(from: attachments)
             _ = try repository.appendMessage(role: .user, content: content, attachments: msgAttachments, to: conversation)
             releaseDraftAttachments(attachments)
             composerText = ""
@@ -867,19 +915,26 @@ final class ChatViewModel: ObservableObject {
         return ""
     }
 
-    private func buildMessageAttachments(from urls: [URL]) throws -> [MessageAttachment] {
-        try urls.map { url in
-            let mimeType = try supportedAttachmentMimeType(for: url)
+    private func buildMessageAttachments(from urls: [URL]) async throws -> [MessageAttachment] {
+        let resolvedAttachments = try urls.map { url in
+            (url: url, mimeType: try supportedAttachmentMimeType(for: url))
+        }
 
+        var attachments: [MessageAttachment] = []
+        attachments.reserveCapacity(resolvedAttachments.count)
+
+        for attachment in resolvedAttachments {
             do {
-                let data = try Data(contentsOf: url)
-                return MessageAttachment(data: data, mimeType: mimeType)
+                let data = try await SecureFileAccess.data(from: attachment.url)
+                attachments.append(MessageAttachment(data: data, mimeType: attachment.mimeType))
             } catch {
                 throw ServiceError.providerMessage(
-                    "Could not read \(url.lastPathComponent). Remove it and attach it again."
+                    "Could not read \(attachment.url.lastPathComponent). Remove it and attach it again."
                 )
             }
         }
+
+        return attachments
     }
 
     private func supportedAttachmentMimeType(for url: URL) throws -> String {

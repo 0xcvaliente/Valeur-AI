@@ -82,6 +82,7 @@ enum WorkspaceAIRevisionParser {
 }
 
 enum WorkspaceAIRevisionComposer {
+    @MainActor
     static func request(
         for block: WorkspaceBlockRecord,
         instruction: String,
@@ -770,65 +771,73 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     func importTextFile(into block: WorkspaceBlockRecord, from url: URL) {
-        do {
-            let text = try readText(from: url)
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw WorkspaceImportError.invalidTextFile
+        Task {
+            do {
+                let text = try await readText(from: url)
+                guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw WorkspaceImportError.invalidTextFile
+                }
+                update {
+                    try repository.updateTextBlock(block, markdown: text)
+                }
+            } catch {
+                errorMessage = displayMessage(for: error)
             }
-            update {
-                try repository.updateTextBlock(block, markdown: text)
-            }
-        } catch {
-            errorMessage = displayMessage(for: error)
         }
     }
 
     func importCSVFile(into block: WorkspaceBlockRecord, from url: URL) {
-        do {
-            let text = try readText(from: url)
-            guard let table = CSVTableSupport.table(from: text) else {
-                throw WorkspaceImportError.invalidCSV
+        Task {
+            do {
+                let text = try await readText(from: url)
+                guard let table = CSVTableSupport.table(from: text) else {
+                    throw WorkspaceImportError.invalidCSV
+                }
+                update {
+                    try repository.updateTableBlock(block, table: table)
+                }
+            } catch {
+                errorMessage = displayMessage(for: error)
             }
-            update {
-                try repository.updateTableBlock(block, table: table)
-            }
-        } catch {
-            errorMessage = displayMessage(for: error)
         }
     }
 
     func importChartJSONFile(into block: WorkspaceBlockRecord, from url: URL) {
-        do {
-            let text = try readText(from: url)
-            guard let chart = WorkspaceSeedFactory.decodeChart(from: text) else {
-                throw WorkspaceImportError.invalidChartJSON
+        Task {
+            do {
+                let text = try await readText(from: url)
+                guard let chart = WorkspaceSeedFactory.decodeChart(from: text) else {
+                    throw WorkspaceImportError.invalidChartJSON
+                }
+                update {
+                    try repository.updateChartBlock(block, chartJSON: WorkspaceSeedFactory.encodedChart(chart))
+                }
+            } catch {
+                errorMessage = displayMessage(for: error)
             }
-            update {
-                try repository.updateChartBlock(block, chartJSON: WorkspaceSeedFactory.encodedChart(chart))
-            }
-        } catch {
-            errorMessage = displayMessage(for: error)
         }
     }
 
     func importImageFile(into block: WorkspaceBlockRecord, from url: URL) {
-        do {
-            let imageData = try readData(from: url)
-            guard NSImage(data: imageData) != nil else {
-                throw WorkspaceImportError.invalidImageFile
-            }
+        Task {
+            do {
+                let imageData = try await readData(from: url)
+                guard NSImage(data: imageData) != nil else {
+                    throw WorkspaceImportError.invalidImageFile
+                }
 
-            var payload = WorkspaceSeedFactory.decodeImagePayload(from: block.decryptedContent)
-            if payload.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                payload.caption = url.deletingPathExtension().lastPathComponent
-            }
-            payload.remoteURLString = nil
+                var payload = WorkspaceSeedFactory.decodeImagePayload(from: block.decryptedContent)
+                if payload.caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    payload.caption = url.deletingPathExtension().lastPathComponent
+                }
+                payload.remoteURLString = nil
 
-            update {
-                try repository.updateImageBlock(block, payload: payload, imageData: imageData, replaceImageData: true)
+                update {
+                    try repository.updateImageBlock(block, payload: payload, imageData: imageData, replaceImageData: true)
+                }
+            } catch {
+                errorMessage = displayMessage(for: error)
             }
-        } catch {
-            errorMessage = displayMessage(for: error)
         }
     }
 
@@ -1025,28 +1034,15 @@ final class WorkspaceViewModel: ObservableObject {
         workspaces = workspaces.sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    private func readText(from url: URL) throws -> String {
-        let data = try readData(from: url)
-        if let text = String(data: data, encoding: .utf8) {
-            return text
-        }
-        if let text = String(data: data, encoding: .unicode) {
-            return text
-        }
-        if let text = String(data: data, encoding: .utf16) {
+    private func readText(from url: URL) async throws -> String {
+        if let text = try await SecureFileAccess.text(from: url, encodings: [.utf8, .unicode, .utf16]) {
             return text
         }
         throw WorkspaceImportError.invalidTextFile
     }
 
-    private func readData(from url: URL) throws -> Data {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer {
-            if accessed {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        return try Data(contentsOf: url)
+    private func readData(from url: URL) async throws -> Data {
+        try await SecureFileAccess.data(from: url)
     }
 
     private func save(_ exportedFile: ExportedFile) throws {
