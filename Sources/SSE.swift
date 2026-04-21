@@ -19,10 +19,10 @@ enum SSEEvent {
 }
 
 struct SSEParser {
-    private static let maxLineBytes = 1 * 1024 * 1024
-    private static let maxBufferLines = 1_000
+    private nonisolated static let maxLineBytes = 1 * 1024 * 1024
+    private nonisolated static let maxBufferLines = 1_000
 
-    static func events<S: AsyncSequence>(from bytes: S) -> AsyncThrowingStream<SSEEvent, Error> where S.Element == UInt8 {
+    nonisolated static func events<S: AsyncSequence>(from bytes: S) -> AsyncThrowingStream<SSEEvent, Error> where S.Element == UInt8 {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
@@ -74,7 +74,7 @@ struct SSEParser {
         }
     }
 
-    fileprivate static func makeEvent(from lines: [String]) -> SSEEvent? {
+    fileprivate nonisolated static func makeEvent(from lines: [String]) -> SSEEvent? {
         guard !lines.isEmpty else { return nil }
         var eventName: String?
         var dataParts: [String] = []

@@ -359,9 +359,7 @@ enum WorkspaceExportService {
     private static func htmlBody(for block: WorkspaceBlockRecord) -> String {
         switch block.kind {
         case .text:
-            return MarkdownBlock.parse(block.decryptedContent)
-                .map(ConversationExportService.html)
-                .joined(separator: "\n")
+            return WorkspaceTextStorage.htmlBody(plainText: block.decryptedContent, richTextData: block.decryptedAttachmentsData)
         case .table:
             guard let table = block.workspaceTableForExport else {
                 return "<p>Table data is unavailable.</p>"

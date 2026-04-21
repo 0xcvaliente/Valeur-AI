@@ -2,6 +2,8 @@ import SwiftUI
 
 struct AppCommands: Commands {
     var body: some Commands {
+        TextEditingCommands()
+
         CommandGroup(after: .newItem) {
             Button("New Chat") {
                 NotificationCenter.default.post(name: .newChatRequested, object: nil)

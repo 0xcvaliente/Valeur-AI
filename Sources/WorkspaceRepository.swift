@@ -126,12 +126,19 @@ enum WorkspaceAIRevisionComposer {
 
         switch originalBlock.kind {
         case .text:
-            let markdown = WorkspaceAIRevisionParser.unwrappedCodeFence(cleanedResponse)
-            let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+            let textPayload = WorkspaceAIRevisionParser.unwrappedCodeFence(cleanedResponse)
+            let trimmed = textPayload.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 throw WorkspaceRevisionError.emptyResponse
             }
-            return WorkspaceBlockSeed(kind: .text, content: trimmed, attachmentsData: originalBlock.decryptedAttachmentsData)
+
+            let document = if trimmed.contains("<") && trimmed.contains(">") {
+                WorkspaceTextStorage.document(fromHTML: trimmed)
+            } else {
+                WorkspaceTextStorage.document(fromMarkdown: trimmed)
+            }
+
+            return WorkspaceBlockSeed(kind: .text, content: document.plainText, attachmentsData: document.richTextData)
         case .table:
             let payload = WorkspaceAIRevisionParser.jsonObjectString(from: cleanedResponse)
                 ?? WorkspaceAIRevisionParser.unwrappedCodeFence(cleanedResponse)
@@ -155,16 +162,17 @@ enum WorkspaceAIRevisionComposer {
         switch block.kind {
         case .text:
             return """
-            Revise this markdown text block.
+            Revise this rich text block.
 
             Instruction:
             \(instruction)
 
-            Current markdown:
-            \(block.decryptedContent)
+            Current HTML:
+            \(WorkspaceTextStorage.htmlBody(plainText: block.decryptedContent, richTextData: block.decryptedAttachmentsData))
 
-            Return only the revised markdown text.
-            Do not wrap the answer in code fences.
+            Return only the revised HTML fragment.
+            Use semantic tags such as h1-h6, p, ul, ol, li, strong, em, blockquote, hr, pre, and code when they help preserve structure.
+            Do not wrap the answer in code fences or include explanatory prose.
             """
         case .table:
             return """
@@ -227,18 +235,47 @@ enum WorkspaceSeedFactory {
             return nil
         }
 
+        var textHTMLFragments: [String] = []
+
+        func flushTextHTML() {
+            let fragments = textHTMLFragments
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            guard !fragments.isEmpty else {
+                textHTMLFragments.removeAll(keepingCapacity: true)
+                return
+            }
+            seeds.append(textSeed(htmlFragments: fragments))
+            textHTMLFragments.removeAll(keepingCapacity: true)
+        }
+
         for block in MarkdownBlock.parse(content) {
             switch block.kind {
             case .markdown(let markdown):
-                seeds.append(contentsOf: markdownSeeds(from: markdown))
+                for layoutBlock in MarkdownLayoutBlock.parse(markdown) {
+                    switch layoutBlock.kind {
+                    case .remoteImage(let remoteImage):
+                        flushTextHTML()
+                        seeds.append(imageSeed(
+                            payload: WorkspaceImagePayload(caption: remoteImage.altText, remoteURLString: remoteImage.url.absoluteString),
+                            imageData: nil
+                        ))
+                    case .table(let table):
+                        flushTextHTML()
+                        seeds.append(tableSeed(table))
+                    default:
+                        textHTMLFragments.append(WorkspaceTextStorage.htmlFragment(for: layoutBlock))
+                    }
+                }
             case .chart(let spec):
+                flushTextHTML()
                 seeds.append(chartSeed(spec))
             case .code(let language, let code):
-                let label = (language?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? language! : ""
-                let fence = label.isEmpty ? "```\n\(code)\n```" : "```\(label)\n\(code)\n```"
-                seeds.append(textSeed(fence))
+                textHTMLFragments.append(WorkspaceTextStorage.htmlFragment(for: .init(kind: .code(language: language, code: code))))
             }
         }
+
+        flushTextHTML()
 
         if seeds.isEmpty {
             seeds.append(textSeed(content))
@@ -314,70 +351,14 @@ enum WorkspaceSeedFactory {
         decode(WorkspaceImagePayload.self, from: content) ?? WorkspaceImagePayload(caption: "", remoteURLString: nil)
     }
 
-    private static func markdownSeeds(from markdown: String) -> [WorkspaceBlockSeed] {
-        var seeds: [WorkspaceBlockSeed] = []
-        var textFragments: [String] = []
-
-        func flushText() {
-            let text = textFragments
-                .joined(separator: "\n\n")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else {
-                textFragments.removeAll(keepingCapacity: true)
-                return
-            }
-            seeds.append(textSeed(text))
-            textFragments.removeAll(keepingCapacity: true)
-        }
-
-        for block in MarkdownLayoutBlock.parse(markdown) {
-            switch block.kind {
-            case .remoteImage(let remoteImage):
-                flushText()
-                seeds.append(imageSeed(
-                    payload: WorkspaceImagePayload(caption: remoteImage.altText, remoteURLString: remoteImage.url.absoluteString),
-                    imageData: nil
-                ))
-            case .table(let table):
-                flushText()
-                seeds.append(tableSeed(table))
-            default:
-                textFragments.append(markdownString(for: block))
-            }
-        }
-
-        flushText()
-        return seeds
-    }
-
-    private static func markdownString(for block: MarkdownLayoutBlock) -> String {
-        switch block.kind {
-        case .heading(let level, let text):
-            return "\(String(repeating: "#", count: level)) \(text)"
-        case .paragraph(let text):
-            return text
-        case .quote(let text):
-            return text
-                .components(separatedBy: "\n")
-                .map { "> \($0)" }
-                .joined(separator: "\n")
-        case .divider:
-            return "---"
-        case .list(let items, let isOrdered):
-            return items.enumerated().map { index, item in
-                if isOrdered {
-                    return "\(item.ordinal ?? (index + 1)). \(item.text)"
-                }
-                return "- \(item.text)"
-            }
-            .joined(separator: "\n")
-        case .remoteImage, .table:
-            return ""
-        }
-    }
-
     private static func textSeed(_ markdown: String) -> WorkspaceBlockSeed {
-        WorkspaceBlockSeed(kind: .text, content: markdown, attachmentsData: nil)
+        let document = WorkspaceTextStorage.document(fromMarkdown: markdown)
+        return WorkspaceBlockSeed(kind: .text, content: document.plainText, attachmentsData: document.richTextData)
+    }
+
+    private static func textSeed(htmlFragments: [String]) -> WorkspaceBlockSeed {
+        let document = WorkspaceTextStorage.document(fromHTMLFragments: htmlFragments)
+        return WorkspaceBlockSeed(kind: .text, content: document.plainText, attachmentsData: document.richTextData)
     }
 
     private static func tableSeed(_ table: MarkdownTable) -> WorkspaceBlockSeed {
@@ -451,7 +432,7 @@ final class WorkspaceRepository {
 
     func renameWorkspace(_ workspace: WorkspaceRecord, title: String) throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        workspace.title = try MessageEncryption.shared.encryptString(trimmed.isEmpty ? "Untitled Workspace" : trimmed)
+        workspace.title = try MessageEncryption.shared.encryptString(trimmed)
         touch(workspace)
         try context.save()
     }
@@ -483,8 +464,13 @@ final class WorkspaceRepository {
         try context.save()
     }
 
-    func updateTextBlock(_ block: WorkspaceBlockRecord, markdown: String) throws {
-        try updateBlock(block, content: markdown)
+    func updateTextBlock(_ block: WorkspaceBlockRecord, plainText: String, richTextData: Data?) throws {
+        block.content = try MessageEncryption.shared.encryptString(plainText)
+        block.attachmentsData = try richTextData.map { try MessageEncryption.shared.encryptData($0) }
+        if let workspace = block.workspace {
+            touch(workspace)
+        }
+        try context.save()
     }
 
     func updateTableBlock(_ block: WorkspaceBlockRecord, table: MarkdownTable) throws {
@@ -746,9 +732,9 @@ final class WorkspaceViewModel: ObservableObject {
         }
     }
 
-    func updateTextBlock(_ block: WorkspaceBlockRecord, markdown: String) {
+    func updateTextBlock(_ block: WorkspaceBlockRecord, plainText: String, richTextData: Data?) {
         update {
-            try repository.updateTextBlock(block, markdown: markdown)
+            try repository.updateTextBlock(block, plainText: plainText, richTextData: richTextData)
         }
     }
 
@@ -777,8 +763,9 @@ final class WorkspaceViewModel: ObservableObject {
                 guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw WorkspaceImportError.invalidTextFile
                 }
+                let document = WorkspaceTextStorage.document(fromMarkdown: text)
                 update {
-                    try repository.updateTextBlock(block, markdown: text)
+                    try repository.updateTextBlock(block, plainText: document.plainText, richTextData: document.richTextData)
                 }
             } catch {
                 errorMessage = displayMessage(for: error)
@@ -1022,9 +1009,9 @@ final class WorkspaceViewModel: ObservableObject {
 
     private func update(_ operation: () throws -> Void) {
         do {
-            objectWillChange.send()
             try operation()
             sortWorkspaces()
+            objectWillChange.send()
         } catch {
             errorMessage = displayMessage(for: error)
         }

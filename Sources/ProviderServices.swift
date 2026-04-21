@@ -393,6 +393,151 @@ struct GeminiService: LLMService {
     }
 }
 
+struct OpenRouterService: LLMService {
+    let provider: LLMProvider = .openRouter
+    let apiKey: String
+
+    func streamResponse(for request: ChatRequest) -> AsyncThrowingStream<LLMStreamEvent, Error> {
+        do {
+            return streamRequest(
+                provider: provider,
+                endpoint: URL(string: "https://openrouter.ai/api/v1/chat/completions")!,
+                method: "POST",
+                headers: [
+                    "Authorization": "Bearer \(apiKey)",
+                    "Content-Type": "application/json"
+                ],
+                body: try openRouterBody(for: request)
+            ) { event in
+                try parseOpenRouterEvent(event)
+            }
+        } catch {
+            return failedStream(error)
+        }
+    }
+
+    fileprivate func openRouterBody(for request: ChatRequest) throws -> Data {
+        var messages: [[String: Any]] = []
+
+        if let systemPrompt = request.systemPrompt, !systemPrompt.isEmpty {
+            messages.append([
+                "role": Role.system.rawValue,
+                "content": systemPrompt
+            ])
+        }
+
+        messages.append(contentsOf: request.messages.map(openRouterMessage(from:)))
+
+        var body: [String: Any] = [
+            "model": request.model,
+            "stream": true,
+            "messages": messages
+        ]
+
+        var plugins: [[String: Any]] = []
+        if request.allowsWebSearch {
+            plugins.append(["id": "web"])
+        }
+        if request.messages.contains(where: { ($0.attachments ?? []).contains(where: { $0.mimeType == "application/pdf" }) }) {
+            plugins.append(["id": "file-parser"])
+        }
+        if !plugins.isEmpty {
+            body["plugins"] = plugins
+        }
+
+        return try jsonBody(body, provider: provider)
+    }
+
+    private func openRouterMessage(from message: ChatMessagePayload) -> [String: Any] {
+        var content: Any = message.content
+        if let attachments = message.attachments, !attachments.isEmpty {
+            var parts: [[String: Any]] = []
+            if !message.content.isEmpty {
+                parts.append(["type": "text", "text": message.content])
+            }
+            for attachment in attachments {
+                let b64 = attachment.data.base64EncodedString()
+                if attachment.mimeType == "application/pdf" {
+                    parts.append([
+                        "type": "file",
+                        "file": [
+                            "file_data": "data:application/pdf;base64,\(b64)",
+                            "filename": "document.pdf"
+                        ]
+                    ])
+                } else {
+                    parts.append([
+                        "type": "image_url",
+                        "image_url": [
+                            "url": "data:\(attachment.mimeType);base64,\(b64)"
+                        ]
+                    ])
+                }
+            }
+            content = parts
+        }
+
+        return [
+            "role": message.role.rawValue,
+            "content": content
+        ]
+    }
+
+    fileprivate func parseOpenRouterEvent(_ event: SSEEvent) throws -> [LLMStreamEvent] {
+        guard case .message(_, let data) = event else { return [] }
+        let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return [] }
+        if trimmed == "[DONE]" { return [.finished] }
+
+        let json = try streamJSONObject(from: trimmed, provider: provider)
+        return recoverOpenRouterOutput(from: json, preferDelta: true)
+    }
+
+    private func recoverOpenRouterOutput(from json: [String: Any], preferDelta: Bool) -> [LLMStreamEvent] {
+        guard let choices = json["choices"] as? [[String: Any]] else {
+            return []
+        }
+
+        var events: [LLMStreamEvent] = []
+        for choice in choices {
+            if preferDelta,
+               let delta = choice["delta"] as? [String: Any] {
+                let text = openRouterText(from: delta["content"])
+                if !text.isEmpty {
+                    events.append(.token(text))
+                }
+            }
+
+            if let message = choice["message"] as? [String: Any] {
+                let text = openRouterText(from: message["content"])
+                if !text.isEmpty {
+                    events.append(.token(text))
+                }
+            }
+        }
+
+        return events
+    }
+
+    private func openRouterText(from content: Any?) -> String {
+        if let text = content as? String {
+            return text
+        }
+        if let parts = content as? [[String: Any]] {
+            return parts.compactMap { item in
+                if let text = item["text"] as? String {
+                    return text
+                }
+                if let nested = item["content"] as? String {
+                    return nested
+                }
+                return nil
+            }.joined()
+        }
+        return ""
+    }
+}
+
 enum ProviderStreamParserTestHarness {
     private static func decodeJSONBody(_ data: Data) throws -> [String: Any] {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -413,6 +558,10 @@ enum ProviderStreamParserTestHarness {
         try GeminiService(apiKey: "test-key").parseGeminiEvent(.message(event: nil, data: data))
     }
 
+    static func parseOpenRouterEvent(_ data: String) throws -> [LLMStreamEvent] {
+        try OpenRouterService(apiKey: "test-key").parseOpenRouterEvent(.message(event: nil, data: data))
+    }
+
     static func recoverOpenAINonStreamingBody(_ body: String) throws -> [LLMStreamEvent] {
         try recoverEventsFromNonStreamingBody(
             provider: .openAI,
@@ -429,6 +578,14 @@ enum ProviderStreamParserTestHarness {
         )
     }
 
+    static func recoverOpenRouterNonStreamingBody(_ body: String) throws -> [LLMStreamEvent] {
+        try recoverEventsFromNonStreamingBody(
+            provider: .openRouter,
+            responseBody: body,
+            parser: { try OpenRouterService(apiKey: "test-key").parseOpenRouterEvent($0) }
+        )
+    }
+
     static func openAIRequestBody(for request: ChatRequest) throws -> [String: Any] {
         try decodeJSONBody(try OpenAIService(apiKey: "test-key").openAIBody(for: request))
     }
@@ -439,6 +596,10 @@ enum ProviderStreamParserTestHarness {
 
     static func geminiRequestBody(for request: ChatRequest) throws -> [String: Any] {
         try decodeJSONBody(try GeminiService(apiKey: "test-key").geminiBody(for: request))
+    }
+
+    static func openRouterRequestBody(for request: ChatRequest) throws -> [String: Any] {
+        try decodeJSONBody(try OpenRouterService(apiKey: "test-key").openRouterBody(for: request))
     }
 }
 
@@ -453,7 +614,7 @@ private func streamRequest(
     AsyncThrowingStream { continuation in
         let task = Task {
             do {
-                try validateAuthenticationHeaders(headers)
+                try validateAuthenticationHeaders(headers, provider: provider)
 
                 var request = URLRequest(url: endpoint)
                 request.httpMethod = method
@@ -535,7 +696,7 @@ private func jsonRequest(
     headers: [String: String],
     body: Data
 ) async throws -> [String: Any] {
-    try validateAuthenticationHeaders(headers)
+    try validateAuthenticationHeaders(headers, provider: provider)
 
     var request = URLRequest(url: endpoint)
     request.httpMethod = method
@@ -561,15 +722,24 @@ private func jsonRequest(
     return try streamJSONObject(from: responseBody, provider: provider)
 }
 
-private func validateAuthenticationHeaders(_ headers: [String: String]) throws {
-    if let apiKey = headers["Authorization"], apiKey.hasSuffix("Bearer ") {
-        throw ServiceError.missingAPIKey("OpenAI")
-    }
-    if let apiKey = headers["x-api-key"], apiKey.isEmpty {
-        throw ServiceError.missingAPIKey("Anthropic")
-    }
-    if let apiKey = headers["X-Goog-Api-Key"], apiKey.isEmpty {
-        throw ServiceError.missingAPIKey("Google Gemini")
+private func validateAuthenticationHeaders(_ headers: [String: String], provider: LLMProvider) throws {
+    switch provider {
+    case .openAI:
+        if let apiKey = headers["Authorization"], apiKey.hasSuffix("Bearer ") {
+            throw ServiceError.missingAPIKey(provider.displayName)
+        }
+    case .anthropic:
+        if let apiKey = headers["x-api-key"], apiKey.isEmpty {
+            throw ServiceError.missingAPIKey(provider.displayName)
+        }
+    case .gemini:
+        if let apiKey = headers["X-Goog-Api-Key"], apiKey.isEmpty {
+            throw ServiceError.missingAPIKey(provider.displayName)
+        }
+    case .openRouter:
+        if let apiKey = headers["Authorization"], apiKey.hasSuffix("Bearer ") {
+            throw ServiceError.missingAPIKey(provider.displayName)
+        }
     }
 }
 

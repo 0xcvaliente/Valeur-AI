@@ -21,13 +21,7 @@ struct RootView: View {
                     }
                 })
             } else if UITestLaunchConfiguration.screen == .settings {
-                if let viewModel {
-                    SettingsView(viewModel: viewModel)
-                        .environmentObject(appState.settingsStore)
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                UITestSettingsHost(appState: appState, modelContext: modelContext)
             } else if !hasAcceptedTerms {
                 TermsView(onAccept: {
                     storedHasAcceptedTerms = true
@@ -61,6 +55,7 @@ struct RootView: View {
             Text(appState.persistenceWarningMessage ?? "")
         }
         .task {
+            guard UITestLaunchConfiguration.screen == nil else { return }
             if viewModel == nil || workspaceViewModel == nil {
                 let repository = ConversationRepository(context: modelContext)
                 let model = ChatViewModel(appState: appState, repository: repository)
@@ -76,5 +71,24 @@ struct RootView: View {
                 workspaceViewModel = workspaceModel
             }
         }
+    }
+}
+
+@MainActor
+private struct UITestSettingsHost: View {
+    @StateObject private var viewModel: ChatViewModel
+
+    init(appState: AppState, modelContext: ModelContext) {
+        let repository = ConversationRepository(context: modelContext)
+        let model = ChatViewModel(appState: appState, repository: repository)
+        model.load()
+        if model.selectedConversation == nil {
+            model.newChat()
+        }
+        _viewModel = StateObject(wrappedValue: model)
+    }
+
+    var body: some View {
+        SettingsView(viewModel: viewModel)
     }
 }

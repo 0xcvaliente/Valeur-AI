@@ -1,9 +1,11 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct WorkspaceView: View {
     @ObservedObject var viewModel: WorkspaceViewModel
+    @EnvironmentObject private var settingsStore: SettingsStore
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -13,7 +15,8 @@ struct WorkspaceView: View {
             workspaceDetail
         }
         .navigationSplitViewStyle(.balanced)
-        .preferredColorScheme(nil)
+        .preferredColorScheme(settingsStore.appAppearance.colorScheme)
+        .background(WindowAppearanceSynchronizer(colorScheme: settingsStore.appAppearance.colorScheme))
         .background(AppTheme.backgroundPrimary.ignoresSafeArea())
     }
 
@@ -97,7 +100,10 @@ struct WorkspaceView: View {
         Binding(
             get: { viewModel.selectedWorkspace?.id },
             set: { newID in
-                viewModel.selectWorkspace(viewModel.workspaces.first(where: { $0.id == newID }))
+                let target = viewModel.workspaces.first(where: { $0.id == newID })
+                DispatchQueue.main.async {
+                    viewModel.selectWorkspace(target)
+                }
             }
         )
     }
@@ -163,10 +169,7 @@ private struct WorkspaceEditorView: View {
             TextField(
                 "Untitled Workspace",
                 text: Binding(
-                    get: {
-                        let trimmed = workspace.decryptedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                        return trimmed.isEmpty ? "Untitled Workspace" : trimmed
-                    },
+                    get: { workspace.decryptedTitle },
                     set: { viewModel.renameSelectedWorkspace($0) }
                 )
             )
@@ -305,10 +308,10 @@ private struct WorkspaceBlockCardView: View {
             switch block.kind {
             case .text:
                 WorkspaceTextBlockEditorView(
-                    text: Binding(
-                        get: { block.decryptedContent },
-                        set: { viewModel.updateTextBlock(block, markdown: $0) }
-                    ),
+                    block: block,
+                    onChange: { plainText, richTextData in
+                        viewModel.updateTextBlock(block, plainText: plainText, richTextData: richTextData)
+                    },
                     onImport: { viewModel.importTextFile(into: block, from: $0) }
                 )
             case .table:
@@ -363,10 +366,362 @@ private struct WorkspaceBlockCardView: View {
     }
 }
 
+private final class WorkspaceTextFormatController: ObservableObject {
+    weak var textView: NSTextView?
+
+    @Published var isBold = false
+    @Published var isItalic = false
+    @Published var isUnderline = false
+    @Published var fontSize: CGFloat = 16
+    @Published var canUndo = false
+    @Published var canRedo = false
+
+    func updateState() {
+        guard let textView else {
+            DispatchQueue.main.async { [weak self] in
+                self?.canUndo = false
+                self?.canRedo = false
+            }
+            return
+        }
+        let attrs: [NSAttributedString.Key: Any]
+        if textView.selectedRange().length > 0,
+           textView.textStorage?.length ?? 0 > 0,
+           textView.selectedRange().location < (textView.textStorage?.length ?? 0) {
+            attrs = textView.textStorage?.attributes(at: textView.selectedRange().location, effectiveRange: nil) ?? textView.typingAttributes
+        } else {
+            attrs = textView.typingAttributes
+        }
+        let font = attrs[.font] as? NSFont
+        let traits = font?.fontDescriptor.symbolicTraits ?? []
+        let newBold = traits.contains(.bold)
+        let newItalic = traits.contains(.italic)
+        let newUnderline = (attrs[.underlineStyle] as? Int ?? 0) != 0
+        let newSize = font?.pointSize ?? 16
+        let newCanUndo = textView.undoManager?.canUndo ?? false
+        let newCanRedo = textView.undoManager?.canRedo ?? false
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isBold = newBold
+            self.isItalic = newItalic
+            self.isUnderline = newUnderline
+            self.fontSize = newSize
+            self.canUndo = newCanUndo
+            self.canRedo = newCanRedo
+        }
+    }
+
+    private func restoreFocus() {
+        guard let textView else { return }
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    func undo() {
+        guard let textView else { return }
+        textView.undoManager?.undo()
+        restoreFocus()
+        updateState()
+    }
+
+    func redo() {
+        guard let textView else { return }
+        textView.undoManager?.redo()
+        restoreFocus()
+        updateState()
+    }
+
+    func toggleBold() {
+        guard let textView else { return }
+        let range = textView.selectedRange()
+        if range.length > 0, NSMaxRange(range) <= textView.textStorage?.length ?? 0 {
+            let snapshot = textView.textStorage?.attributedSubstring(from: range)
+            textView.textStorage?.beginEditing()
+            textView.textStorage?.enumerateAttribute(.font, in: range) { value, subRange, _ in
+                let font = (value as? NSFont) ?? AppTheme.uiNSFont(16, weight: .regular)
+                let newFont = font.fontDescriptor.symbolicTraits.contains(.bold)
+                    ? NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
+                    : NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+                textView.textStorage?.addAttribute(.font, value: newFont, range: subRange)
+            }
+            textView.textStorage?.endEditing()
+            textView.didChangeText()
+            if let snapshot {
+                textView.undoManager?.registerUndo(withTarget: textView) { [weak self] tv in
+                    tv.textStorage?.beginEditing()
+                    tv.textStorage?.replaceCharacters(in: range, with: snapshot)
+                    tv.textStorage?.endEditing()
+                    tv.didChangeText()
+                    self?.updateState()
+                }
+                textView.undoManager?.setActionName("Bold")
+            }
+        } else {
+            let current = (textView.typingAttributes[.font] as? NSFont) ?? AppTheme.uiNSFont(16, weight: .regular)
+            let newFont = current.fontDescriptor.symbolicTraits.contains(.bold)
+                ? NSFontManager.shared.convert(current, toNotHaveTrait: .boldFontMask)
+                : NSFontManager.shared.convert(current, toHaveTrait: .boldFontMask)
+            textView.typingAttributes[.font] = newFont
+        }
+        restoreFocus()
+        updateState()
+    }
+
+    func toggleItalic() {
+        guard let textView else { return }
+        let range = textView.selectedRange()
+        if range.length > 0, NSMaxRange(range) <= textView.textStorage?.length ?? 0 {
+            let snapshot = textView.textStorage?.attributedSubstring(from: range)
+            textView.textStorage?.beginEditing()
+            textView.textStorage?.enumerateAttribute(.font, in: range) { value, subRange, _ in
+                let font = (value as? NSFont) ?? AppTheme.uiNSFont(16, weight: .regular)
+                let newFont = font.fontDescriptor.symbolicTraits.contains(.italic)
+                    ? NSFontManager.shared.convert(font, toNotHaveTrait: .italicFontMask)
+                    : NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+                textView.textStorage?.addAttribute(.font, value: newFont, range: subRange)
+            }
+            textView.textStorage?.endEditing()
+            textView.didChangeText()
+            if let snapshot {
+                textView.undoManager?.registerUndo(withTarget: textView) { [weak self] tv in
+                    tv.textStorage?.beginEditing()
+                    tv.textStorage?.replaceCharacters(in: range, with: snapshot)
+                    tv.textStorage?.endEditing()
+                    tv.didChangeText()
+                    self?.updateState()
+                }
+                textView.undoManager?.setActionName("Italic")
+            }
+        } else {
+            let current = (textView.typingAttributes[.font] as? NSFont) ?? AppTheme.uiNSFont(16, weight: .regular)
+            let newFont = current.fontDescriptor.symbolicTraits.contains(.italic)
+                ? NSFontManager.shared.convert(current, toNotHaveTrait: .italicFontMask)
+                : NSFontManager.shared.convert(current, toHaveTrait: .italicFontMask)
+            textView.typingAttributes[.font] = newFont
+        }
+        restoreFocus()
+        updateState()
+    }
+
+    func toggleUnderline() {
+        guard let textView else { return }
+        let range = textView.selectedRange()
+        if range.length > 0, NSMaxRange(range) <= textView.textStorage?.length ?? 0 {
+            var hasUnderline = false
+            textView.textStorage?.enumerateAttribute(.underlineStyle, in: range) { value, _, stop in
+                if (value as? Int ?? 0) != 0 { hasUnderline = true; stop.pointee = true }
+            }
+            let snapshot = textView.textStorage?.attributedSubstring(from: range)
+            textView.textStorage?.addAttribute(.underlineStyle, value: hasUnderline ? 0 : NSUnderlineStyle.single.rawValue, range: range)
+            textView.didChangeText()
+            if let snapshot {
+                textView.undoManager?.registerUndo(withTarget: textView) { [weak self] tv in
+                    tv.textStorage?.beginEditing()
+                    tv.textStorage?.replaceCharacters(in: range, with: snapshot)
+                    tv.textStorage?.endEditing()
+                    tv.didChangeText()
+                    self?.updateState()
+                }
+                textView.undoManager?.setActionName("Underline")
+            }
+        } else {
+            let current = textView.typingAttributes[.underlineStyle] as? Int ?? 0
+            textView.typingAttributes[.underlineStyle] = current != 0 ? 0 : NSUnderlineStyle.single.rawValue
+        }
+        restoreFocus()
+        updateState()
+    }
+
+    func adjustFontSize(by delta: CGFloat) {
+        guard let textView, let storage = textView.textStorage else { return }
+        let selectedRange = textView.selectedRange()
+        if selectedRange.length > 0 && NSMaxRange(selectedRange) <= storage.length {
+            let snapshot = storage.attributedSubstring(from: selectedRange)
+            storage.beginEditing()
+            storage.enumerateAttribute(.font, in: selectedRange) { value, subRange, _ in
+                let font = (value as? NSFont) ?? AppTheme.uiNSFont(16, weight: .regular)
+                let newSize = max(10, font.pointSize + delta)
+                let newFont = NSFont(descriptor: font.fontDescriptor, size: newSize) ?? AppTheme.uiNSFont(newSize, weight: .regular)
+                storage.addAttribute(.font, value: newFont, range: subRange)
+            }
+            storage.endEditing()
+            textView.didChangeText()
+            textView.undoManager?.registerUndo(withTarget: textView) { [weak self] tv in
+                tv.textStorage?.beginEditing()
+                tv.textStorage?.replaceCharacters(in: selectedRange, with: snapshot)
+                tv.textStorage?.endEditing()
+                tv.didChangeText()
+                self?.updateState()
+            }
+            textView.undoManager?.setActionName("Font Size")
+        } else {
+            let current = (textView.typingAttributes[.font] as? NSFont) ?? AppTheme.uiNSFont(16, weight: .regular)
+            let newSize = max(10, current.pointSize + delta)
+            let newFont = NSFont(descriptor: current.fontDescriptor, size: newSize) ?? AppTheme.uiNSFont(newSize, weight: .regular)
+            textView.typingAttributes[.font] = newFont
+        }
+        restoreFocus()
+        updateState()
+    }
+}
+
+private struct WorkspaceTextFormatBar: NSViewRepresentable {
+    @ObservedObject var controller: WorkspaceTextFormatController
+
+    func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
+
+    func makeNSView(context: Context) -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 4
+        stack.edgeInsets = NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        stack.wantsLayer = true
+        stack.layer?.cornerRadius = AppTheme.radius
+        stack.layer?.cornerCurve = .continuous
+        stack.layer?.borderWidth = 1
+
+        let undoBtn   = makeButton("arrow.uturn.backward",    tag: 0, coordinator: context.coordinator)
+        let redoBtn   = makeButton("arrow.uturn.forward",     tag: 1, coordinator: context.coordinator)
+        let sep1      = makeSeparator()
+        let boldBtn   = makeButton("bold",                    tag: 2, coordinator: context.coordinator)
+        let italicBtn = makeButton("italic",                  tag: 3, coordinator: context.coordinator)
+        let underBtn  = makeButton("underline",               tag: 4, coordinator: context.coordinator)
+        let sep2      = makeSeparator()
+        let decBtn    = makeButton("textformat.size.smaller", tag: 5, coordinator: context.coordinator)
+        let sizeLabel = NSTextField(labelWithString: "16")
+        sizeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        sizeLabel.alignment = .center
+        sizeLabel.setContentHuggingPriority(.required, for: .horizontal)
+        let incBtn    = makeButton("textformat.size.larger",  tag: 6, coordinator: context.coordinator)
+
+        context.coordinator.undoBtn   = undoBtn
+        context.coordinator.redoBtn   = redoBtn
+        context.coordinator.boldBtn   = boldBtn
+        context.coordinator.italicBtn = italicBtn
+        context.coordinator.underBtn  = underBtn
+        context.coordinator.sizeLabel = sizeLabel
+        context.coordinator.sep1      = sep1
+        context.coordinator.sep2      = sep2
+        context.coordinator.stack     = stack
+
+        for view in [undoBtn, redoBtn, sep1, boldBtn, italicBtn, underBtn, sep2, decBtn, sizeLabel, incBtn] {
+            stack.addArrangedSubview(view)
+        }
+        return stack
+    }
+
+    func updateNSView(_ stack: NSView, context: Context) {
+        let co = context.coordinator
+        stack.effectiveAppearance.performAsCurrentDrawingAppearance {
+            let surface = NSColor(AppTheme.surfacePrimary).cgColor
+            let border  = NSColor(AppTheme.border).cgColor
+            stack.layer?.backgroundColor = surface
+            stack.layer?.borderColor = border
+            co.sep1?.layer?.backgroundColor = border
+            co.sep2?.layer?.backgroundColor = border
+            applyEnabled(co.undoBtn, isEnabled: controller.canUndo)
+            applyEnabled(co.redoBtn, isEnabled: controller.canRedo)
+            applyActive(co.boldBtn,   isActive: controller.isBold)
+            applyActive(co.italicBtn, isActive: controller.isItalic)
+            applyActive(co.underBtn,  isActive: controller.isUnderline)
+            co.sizeLabel?.textColor = NSColor(AppTheme.textSecondary)
+        }
+        co.sizeLabel?.stringValue = String(Int(controller.fontSize))
+    }
+
+    private func makeButton(_ symbol: String, tag: Int, coordinator: Coordinator) -> NSButton {
+        let cfg = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        let btn = NSButton()
+        btn.refusesFirstResponder = true
+        btn.isBordered = false
+        btn.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg)
+        btn.imageScaling = .scaleProportionallyDown
+        btn.wantsLayer = true
+        btn.layer?.cornerRadius = AppTheme.controlRadius
+        btn.layer?.cornerCurve = .continuous
+        btn.layer?.borderWidth = 1
+        btn.tag = tag
+        btn.target = coordinator
+        btn.action = #selector(Coordinator.buttonTapped(_:))
+        btn.setContentHuggingPriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            btn.widthAnchor.constraint(equalToConstant: 30),
+            btn.heightAnchor.constraint(equalToConstant: 26),
+        ])
+        return btn
+    }
+
+    private func makeSeparator() -> NSView {
+        let v = NSView()
+        v.wantsLayer = true
+        NSLayoutConstraint.activate([
+            v.widthAnchor.constraint(equalToConstant: 1),
+            v.heightAnchor.constraint(equalToConstant: 16),
+        ])
+        return v
+    }
+
+    private func applyEnabled(_ btn: NSButton?, isEnabled: Bool) {
+        guard let btn else { return }
+        btn.isEnabled = isEnabled
+        btn.layer?.backgroundColor = NSColor(AppTheme.surfaceSecondary).cgColor
+        btn.layer?.borderColor = NSColor(AppTheme.border).cgColor
+        btn.contentTintColor = isEnabled ? NSColor(AppTheme.textPrimary) : NSColor(AppTheme.textSecondary).withAlphaComponent(0.45)
+    }
+
+    private func applyActive(_ btn: NSButton?, isActive: Bool) {
+        guard let btn else { return }
+        btn.isEnabled = true
+        if isActive {
+            btn.layer?.backgroundColor = NSColor(AppTheme.accent).cgColor
+            btn.layer?.borderColor = NSColor(AppTheme.accent).cgColor
+            btn.contentTintColor = .white
+        } else {
+            btn.layer?.backgroundColor = NSColor(AppTheme.surfaceSecondary).cgColor
+            btn.layer?.borderColor = NSColor(AppTheme.border).cgColor
+            btn.contentTintColor = NSColor(AppTheme.textPrimary)
+        }
+    }
+
+    final class Coordinator: NSObject {
+        let controller: WorkspaceTextFormatController
+        weak var undoBtn:   NSButton?
+        weak var redoBtn:   NSButton?
+        weak var boldBtn:   NSButton?
+        weak var italicBtn: NSButton?
+        weak var underBtn:  NSButton?
+        weak var sizeLabel: NSTextField?
+        weak var sep1:      NSView?
+        weak var sep2:      NSView?
+        weak var stack:     NSView?
+
+        init(controller: WorkspaceTextFormatController) { self.controller = controller }
+
+        @objc func buttonTapped(_ sender: NSButton) {
+            switch sender.tag {
+            case 0: controller.undo()
+            case 1: controller.redo()
+            case 2: controller.toggleBold()
+            case 3: controller.toggleItalic()
+            case 4: controller.toggleUnderline()
+            case 5: controller.adjustFontSize(by: -1)
+            case 6: controller.adjustFontSize(by: 1)
+            default: break
+            }
+        }
+    }
+}
+
+private final class FormatControllerHolder: ObservableObject {
+    let controller = WorkspaceTextFormatController()
+}
+
 private struct WorkspaceTextBlockEditorView: View {
-    @Binding var text: String
+    let block: WorkspaceBlockRecord
+    let onChange: (String, Data?) -> Void
     let onImport: (URL) -> Void
     @State private var isImportingText = false
+    @StateObject private var holder = FormatControllerHolder()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -379,14 +734,20 @@ private struct WorkspaceTextBlockEditorView: View {
                 Spacer(minLength: 0)
             }
 
-            TextEditor(text: $text)
-                .font(AppTheme.uiFont(15, weight: .regular))
-                .foregroundStyle(AppTheme.textPrimary)
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .frame(minHeight: 220)
-                .background(AppTheme.surfaceSecondary)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+            WorkspaceRichTextEditor(
+                attributedString: block.workspaceTextAttributedString,
+                formatController: holder.controller,
+                onChange: { attributedString in
+                    let document = WorkspaceTextStorage.document(from: attributedString)
+                    onChange(document.plainText, document.richTextData)
+                }
+            )
+            .frame(minHeight: 220)
+            .background(AppTheme.surfaceSecondary)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+
+            WorkspaceTextFormatBar(controller: holder.controller)
+                .frame(height: 38)
         }
         .fileImporter(
             isPresented: $isImportingText,
@@ -396,6 +757,227 @@ private struct WorkspaceTextBlockEditorView: View {
             if let url = try? result.get().first {
                 onImport(url)
             }
+        }
+    }
+}
+
+private final class WorkspaceNSTextView: NSTextView {
+    let groupedUndoManager: GroupedTextUndoManager = {
+        let um = GroupedTextUndoManager()
+        um.groupsByEvent = false
+        return um
+    }()
+
+    override var undoManager: UndoManager? { groupedUndoManager }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleMacTextDeletionShortcut(event) {
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if handleMacTextDeletionShortcut(event) {
+            return
+        }
+
+        super.keyDown(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        if shouldCloseGroupedTextUndo(for: selector) {
+            groupedUndoManager.closeGroupHandler?()
+        }
+
+        super.doCommand(by: selector)
+    }
+
+    private func handleMacTextDeletionShortcut(_ event: NSEvent) -> Bool {
+        guard let selector = macTextDeletionSelector(for: event, allowsMarkedText: !hasMarkedText()) else {
+            return false
+        }
+
+        doCommand(by: selector)
+        return true
+    }
+}
+
+private struct WorkspaceRichTextEditor: NSViewRepresentable {
+    let attributedString: NSAttributedString
+    let formatController: WorkspaceTextFormatController
+    let onChange: (NSAttributedString) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange, formatController: formatController)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let textView = WorkspaceNSTextView()
+        textView.delegate = context.coordinator
+        textView.drawsBackground = true
+        textView.backgroundColor = NSColor(AppTheme.surfaceSecondary)
+        textView.textColor = NSColor(AppTheme.textPrimary)
+        textView.insertionPointColor = NSColor(AppTheme.textPrimary)
+        textView.font = AppTheme.uiNSFont(16, weight: .regular)
+        textView.isRichText = true
+        textView.usesAdaptiveColorMappingForDarkAppearance = true
+        textView.importsGraphics = false
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.textContainerInset = NSSize(width: 10, height: 12)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+        textView.allowsUndo = true
+        let coordinator = context.coordinator
+        textView.groupedUndoManager.closeGroupHandler = { [weak textView, weak coordinator] in
+            guard let tv = textView, let c = coordinator else { return }
+            c.closeWordGroup(for: tv)
+        }
+        textView.textStorage?.setAttributedString(attributedString)
+        context.coordinator.normalizeTypingAttributes(for: textView)
+        context.coordinator.formatController.textView = textView
+        if #available(macOS 15.0, *) {
+            textView.writingToolsBehavior = .none
+        }
+
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = NSColor(AppTheme.surfaceSecondary)
+        scrollView.hasVerticalScroller = true
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        let backgroundColor = NSColor(AppTheme.surfaceSecondary)
+        scrollView.backgroundColor = backgroundColor
+        textView.textColor = NSColor(AppTheme.textPrimary)
+        textView.insertionPointColor = NSColor(AppTheme.textPrimary)
+        textView.backgroundColor = backgroundColor
+        textView.usesAdaptiveColorMappingForDarkAppearance = true
+        if context.coordinator.shouldApplyModelAttributedString(attributedString, to: textView) {
+            context.coordinator.closeWordGroup(for: textView)
+            textView.textStorage?.setAttributedString(attributedString)
+        }
+        context.coordinator.normalizeTypingAttributes(for: textView)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        let onChange: (NSAttributedString) -> Void
+        let formatController: WorkspaceTextFormatController
+        private var wordGroupOpen = false
+        private var shouldCloseWordGroupAfterChange = false
+        private var isTyping = false
+        private var isSyncingLocalEdit = false
+
+        init(onChange: @escaping (NSAttributedString) -> Void, formatController: WorkspaceTextFormatController) {
+            self.onChange = onChange
+            self.formatController = formatController
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard let replacement = replacementString else {
+                openWordGroupIfNeeded(for: textView)
+                shouldCloseWordGroupAfterChange = true
+                isTyping = false
+                return true
+            }
+            let isWordBoundary = replacement.unicodeScalars.contains(where: {
+                CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).contains($0)
+            })
+            let shouldTreatAsStandaloneEdit = replacement.isEmpty || replacement.count > 1 || isWordBoundary
+            openWordGroupIfNeeded(for: textView)
+            shouldCloseWordGroupAfterChange = shouldTreatAsStandaloneEdit
+            isTyping = !shouldTreatAsStandaloneEdit
+            return true
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            markLocalEditInFlight()
+            normalizeTypingAttributes(for: textView)
+            onChange(WorkspaceTextStorage.normalizedForEditor(textView.attributedString()))
+            if shouldCloseWordGroupAfterChange {
+                closeWordGroup(for: textView)
+            }
+            if NSEvent.pressedMouseButtons == 0 {
+                formatController.updateState()
+            }
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            if !isTyping {
+                closeWordGroup(for: textView)
+            }
+            isTyping = false
+            normalizeTypingAttributes(for: textView)
+            if NSEvent.pressedMouseButtons == 0 {
+                formatController.updateState()
+            }
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            closeWordGroup(for: textView)
+            normalizeTypingAttributes(for: textView)
+            if NSEvent.pressedMouseButtons == 0 {
+                formatController.updateState()
+            }
+        }
+
+        func closeWordGroup(for textView: NSTextView) {
+            guard wordGroupOpen else { return }
+            textView.undoManager?.endUndoGrouping()
+            wordGroupOpen = false
+            shouldCloseWordGroupAfterChange = false
+        }
+
+        private func openWordGroupIfNeeded(for textView: NSTextView) {
+            guard !wordGroupOpen else { return }
+            textView.undoManager?.beginUndoGrouping()
+            wordGroupOpen = true
+        }
+
+        func shouldApplyModelAttributedString(_ attributedString: NSAttributedString, to textView: NSTextView) -> Bool {
+            guard !textView.attributedString().isEqual(to: attributedString) else { return false }
+            if isSyncingLocalEdit, textView.window?.firstResponder === textView {
+                return false
+            }
+            return true
+        }
+
+        private func markLocalEditInFlight() {
+            isSyncingLocalEdit = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isSyncingLocalEdit = false
+            }
+        }
+
+        func normalizeTypingAttributes(for textView: NSTextView) {
+            var typingAttributes = textView.typingAttributes
+
+            let currentFont = (typingAttributes[.font] as? NSFont) ?? textView.font ?? AppTheme.uiNSFont(16, weight: .regular)
+            let traits = currentFont.fontDescriptor.symbolicTraits
+
+            if traits.contains(.monoSpace) {
+                typingAttributes[.font] = currentFont
+            } else {
+                let normalizedSize = max(currentFont.pointSize, 10)
+                let ref = AppTheme.uiNSFont(1, weight: traits.contains(.bold) ? .bold : .regular)
+                let baseFont = NSFont(descriptor: ref.fontDescriptor, size: normalizedSize)
+                    ?? NSFont.systemFont(ofSize: normalizedSize, weight: traits.contains(.bold) ? .bold : .regular)
+                typingAttributes[.font] = traits.contains(.italic)
+                    ? NSFontManager.shared.convert(baseFont, toHaveTrait: .italicFontMask)
+                    : baseFont
+            }
+
+            typingAttributes[.foregroundColor] = NSColor(AppTheme.textPrimary)
+            textView.typingAttributes = typingAttributes
         }
     }
 }
@@ -671,6 +1253,10 @@ private struct WorkspaceImageBlockEditorView: View {
 }
 
 private extension WorkspaceBlockRecord {
+    var workspaceTextAttributedString: NSAttributedString {
+        WorkspaceTextStorage.attributedString(plainText: decryptedContent, richTextData: decryptedAttachmentsData)
+    }
+
     var workspaceTable: MarkdownTable {
         WorkspaceSeedFactory.decodeTable(from: decryptedContent) ?? MarkdownTable(
             headers: ["Column 1", "Column 2"],
@@ -910,7 +1496,10 @@ private struct WorkspaceRevisionHistorySheet: View {
     private func revisionPreview(_ revision: WorkspaceBlockRevisionRecord) -> String {
         switch block.kind {
         case .text:
-            return revision.decryptedContent.trimmingCharacters(in: .whitespacesAndNewlines)
+            return WorkspaceTextStorage
+                .attributedString(plainText: revision.decryptedContent, richTextData: revision.decryptedAttachmentsData)
+                .string
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         case .table:
             if let table = WorkspaceSeedFactory.decodeTable(from: revision.decryptedContent) {
                 let rowCount = table.rows.count

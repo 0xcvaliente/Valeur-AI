@@ -5,6 +5,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
     case openAI
     case anthropic
     case gemini
+    case openRouter
 
     var id: String { rawValue }
 
@@ -13,6 +14,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
         case .openAI: "OpenAI"
         case .anthropic: "Anthropic"
         case .gemini: "Google Gemini"
+        case .openRouter: "OpenRouter"
         }
     }
 
@@ -21,6 +23,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
         case .openAI: "gpt-5.4-mini"
         case .anthropic: "claude-sonnet-4-6"
         case .gemini: "gemini-2.5-flash"
+        case .openRouter: "anthropic/claude-sonnet-4"
         }
     }
 
@@ -33,6 +36,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
         case .openAI: "ChatGPT"
         case .anthropic: "Claude"
         case .gemini: "Gemini"
+        case .openRouter: "OpenRouter"
         }
     }
 
@@ -56,6 +60,12 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
                 LLMModelPreset(provider: self, title: "Pro", subtitle: "Best for complex reasoning", modelIdentifier: "gemini-2.5-pro", versionLabel: "2.5", contextWindowTokens: 1_048_576, capabilities: .geminiChat),
                 LLMModelPreset(provider: self, title: "Flash", subtitle: "Best price-performance balance", modelIdentifier: "gemini-2.5-flash", versionLabel: "2.5", contextWindowTokens: 1_048_576, capabilities: .geminiChat),
                 LLMModelPreset(provider: self, title: "Flash-Lite", subtitle: "Fastest and most cost efficient", modelIdentifier: "gemini-2.5-flash-lite", versionLabel: "2.5", contextWindowTokens: 1_048_576, capabilities: .geminiChat)
+            ]
+        case .openRouter:
+            [
+                LLMModelPreset(provider: self, title: "Claude", subtitle: "Strong all-around reasoning", modelIdentifier: "anthropic/claude-sonnet-4", versionLabel: "Sonnet 4", contextWindowTokens: 1_000_000, capabilities: .openRouterChat),
+                LLMModelPreset(provider: self, title: "Gemini", subtitle: "Fast multimodal with search", modelIdentifier: "google/gemini-2.5-flash", versionLabel: "2.5 Flash", contextWindowTokens: 1_048_576, capabilities: .openRouterChat),
+                LLMModelPreset(provider: self, title: "o3 Pro", subtitle: "OpenAI reasoning through OpenRouter", modelIdentifier: "openai/o3-pro", versionLabel: "o3-pro", contextWindowTokens: 200_000, capabilities: .openRouterChat)
             ]
         }
     }
@@ -121,6 +131,17 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
             default:
                 return trimmed
             }
+        case .openRouter:
+            switch trimmed {
+            case "claude-sonnet-4-6", "anthropic/claude-sonnet-4-6":
+                return "anthropic/claude-sonnet-4"
+            case "gemini-2.5-flash":
+                return "google/gemini-2.5-flash"
+            case "o3-pro":
+                return "openai/o3-pro"
+            default:
+                return trimmed
+            }
         }
     }
 }
@@ -161,6 +182,14 @@ struct ModelCapabilities: Hashable {
     )
 
     static let geminiChat = ModelCapabilities(
+        supportsVisionInput: true,
+        supportsDocumentInput: true,
+        imageGenerationModelIdentifier: nil,
+        supportsWebSearch: true,
+        supportsStructuredArtifacts: true
+    )
+
+    static let openRouterChat = ModelCapabilities(
         supportsVisionInput: true,
         supportsDocumentInput: true,
         imageGenerationModelIdentifier: nil,

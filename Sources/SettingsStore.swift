@@ -21,6 +21,10 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(selectedModelsByProvider, forKey: Keys.selectedModelsByProvider) }
     }
 
+    @Published private var customModelIdentifiersByProvider: [String: String] {
+        didSet { defaults.set(customModelIdentifiersByProvider, forKey: Keys.customModelIdentifiersByProvider) }
+    }
+
     @Published var systemPrompt: String {
         didSet {
             try? keychain.save(systemPrompt, for: Keys.Keychain.systemPrompt)
@@ -85,8 +89,10 @@ final class SettingsStore: ObservableObject {
         self.keychain = keychain
         self.defaults = defaults
         let initialDefaultProvider = LLMProvider(rawValue: defaults.string(forKey: Keys.defaultProvider) ?? "") ?? .openAI
+        let initialSelectedModels = Self.loadSelectedModels(defaults: defaults, defaultProvider: initialDefaultProvider)
         self.defaultProvider = initialDefaultProvider
-        self.selectedModelsByProvider = Self.loadSelectedModels(defaults: defaults, defaultProvider: initialDefaultProvider)
+        self.selectedModelsByProvider = initialSelectedModels
+        self.customModelIdentifiersByProvider = Self.loadCustomModelIdentifiers(defaults: defaults, selectedModelsByProvider: initialSelectedModels)
         self.systemPrompt = Self.migrateToKeychain(keychain: keychain, account: Keys.Keychain.systemPrompt, legacyKey: Keys.Legacy.systemPrompt, defaults: defaults)
         self.customInstructions = Self.migrateToKeychain(keychain: keychain, account: Keys.Keychain.customInstructions, legacyKey: Keys.Legacy.customInstructions, defaults: defaults)
         self.userName = Self.migrateToKeychain(keychain: keychain, account: Keys.Keychain.userName, legacyKey: Keys.Legacy.userName, defaults: defaults)
@@ -103,7 +109,7 @@ final class SettingsStore: ObservableObject {
         ensureSelectedModel(for: defaultProvider)
     }
 
-    nonisolated static func normalizeFontFamilyName(_ rawValue: String?) -> String {
+    static func normalizeFontFamilyName(_ rawValue: String?) -> String {
         let trimmed = (rawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return AppTheme.nexaFontFamilyName }
 
@@ -147,6 +153,33 @@ final class SettingsStore: ObservableObject {
         updated[provider.rawValue] = resolved
         selectedModelsByProvider = updated
         syncContextWindow(for: provider, modelIdentifier: resolved)
+    }
+
+    func customModelIdentifier(for provider: LLMProvider) -> String {
+        let trimmed = customModelIdentifiersByProvider[provider.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return "" }
+
+        let resolved = provider.normalizedModelIdentifier(trimmed)
+        return provider.preset(for: resolved) == nil ? resolved : ""
+    }
+
+    func setCustomModelIdentifier(_ value: String, for provider: LLMProvider) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updated = customModelIdentifiersByProvider
+
+        guard !trimmed.isEmpty else {
+            updated.removeValue(forKey: provider.rawValue)
+            customModelIdentifiersByProvider = updated
+            return
+        }
+
+        let resolved = provider.normalizedModelIdentifier(trimmed)
+        if provider.preset(for: resolved) == nil {
+            updated[provider.rawValue] = resolved
+        } else {
+            updated.removeValue(forKey: provider.rawValue)
+        }
+        customModelIdentifiersByProvider = updated
     }
 
     func selectedModelPreset(for provider: LLMProvider) -> LLMModelPreset {
@@ -249,6 +282,7 @@ final class SettingsStore: ObservableObject {
         static let defaultProvider = "settings.defaultProvider"
         static let selectedModelsByProvider = "settings.selectedModelsByProvider"
         static let selectedModel = "settings.selectedModel"
+        static let customModelIdentifiersByProvider = "settings.customModelIdentifiersByProvider"
         static let memoryDocumentName = "settings.memoryDocumentName"
         static let appAppearance = "settings.appAppearance"
         static let appFontFamily = "settings.appFontFamily"
@@ -269,6 +303,7 @@ final class SettingsStore: ObservableObject {
             static let customInstructions = "settings.customInstructions"
             static let userName = "settings.userName"
             static let memoryDocumentContent = "settings.memoryDocumentContent"
+            static let customOpenRouterModelIdentifier = "settings.customOpenRouterModelIdentifier"
         }
     }
 
@@ -305,6 +340,39 @@ final class SettingsStore: ObservableObject {
                 resolved[provider.rawValue] = provider.normalizedModelIdentifier(legacySelectedModel)
             } else {
                 resolved[provider.rawValue] = provider.defaultModel
+            }
+        }
+
+        return resolved
+    }
+
+    private static func loadCustomModelIdentifiers(defaults: UserDefaults, selectedModelsByProvider: [String: String]) -> [String: String] {
+        let stored = defaults.dictionary(forKey: Keys.customModelIdentifiersByProvider) as? [String: String] ?? [:]
+        let legacyOpenRouterModel = defaults.string(forKey: Keys.Legacy.customOpenRouterModelIdentifier) ?? ""
+
+        var resolved: [String: String] = [:]
+        for provider in LLMProvider.allCases {
+            let storedValue = stored[provider.rawValue]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let storedValue, !storedValue.isEmpty {
+                let normalized = provider.normalizedModelIdentifier(storedValue)
+                if provider.preset(for: normalized) == nil {
+                    resolved[provider.rawValue] = normalized
+                    continue
+                }
+            }
+
+            if provider == .openRouter {
+                let normalizedLegacy = provider.normalizedModelIdentifier(legacyOpenRouterModel)
+                if !normalizedLegacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   provider.preset(for: normalizedLegacy) == nil {
+                    resolved[provider.rawValue] = normalizedLegacy
+                    continue
+                }
+            }
+
+            let selectedModel = provider.normalizedModelIdentifier(selectedModelsByProvider[provider.rawValue] ?? "")
+            if provider.preset(for: selectedModel) == nil {
+                resolved[provider.rawValue] = selectedModel
             }
         }
 

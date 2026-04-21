@@ -109,7 +109,7 @@ struct TermsView: View {
 
         2. DESCRIPTION OF THE APP
 
-        Valeur AI is a macOS application that provides a unified interface for interacting with third-party AI services, including but not limited to OpenAI, Anthropic, and Google Gemini ("AI Providers"). The App connects to these services using API keys that you supply.
+        Valeur AI is a macOS application that provides a unified interface for interacting with third-party AI services, including but not limited to OpenAI, Anthropic, Google Gemini, and OpenRouter ("AI Providers"). The App connects to these services using API keys that you supply.
 
         3. YOUR API KEYS AND THIRD-PARTY SERVICES
 

@@ -195,6 +195,7 @@ struct LLMSelectorMenu: View {
     var body: some View {
         let currentProvider = viewModel.selectedConversation?.provider ?? settingsStore.defaultProvider
         let currentModelIdentifier = viewModel.selectedConversation?.modelIdentifier ?? settingsStore.selectedModel(for: currentProvider)
+        let customModelIdentifiers = customModelIdentifiers(for: currentProvider, currentModelIdentifier: currentModelIdentifier)
         let selectProvider: (LLMProvider) -> Void = { provider in
             if viewModel.selectedConversation != nil {
                 viewModel.updateProvider(provider)
@@ -239,6 +240,22 @@ struct LLMSelectorMenu: View {
                     }
                 }
             }
+
+            if !customModelIdentifiers.isEmpty {
+                Section("Saved Custom Models") {
+                    ForEach(customModelIdentifiers, id: \.self) { modelIdentifier in
+                        Button {
+                            selectModel(modelIdentifier)
+                        } label: {
+                            CustomModelSelectorMenuRow(
+                                provider: currentProvider,
+                                modelIdentifier: modelIdentifier,
+                                isSelected: currentProvider.normalizedModelIdentifier(currentModelIdentifier) == modelIdentifier
+                            )
+                        }
+                    }
+                }
+            }
         } label: {
             if style == .inline {
                 InlineLLMSelectorButton(
@@ -254,6 +271,25 @@ struct LLMSelectorMenu: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+    }
+
+    private func customModelIdentifiers(for provider: LLMProvider, currentModelIdentifier: String) -> [String] {
+        let presetIdentifiers = Set(provider.presets.map(\.modelIdentifier))
+        let candidates = [
+            settingsStore.customModelIdentifier(for: provider),
+            provider.normalizedModelIdentifier(currentModelIdentifier)
+        ]
+
+        var uniqueIdentifiers: [String] = []
+        for candidate in candidates {
+            let normalized = provider.normalizedModelIdentifier(candidate)
+            if normalized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+            if presetIdentifiers.contains(normalized) { continue }
+            if uniqueIdentifiers.contains(normalized) { continue }
+            uniqueIdentifiers.append(normalized)
+        }
+
+        return uniqueIdentifiers
     }
 }
 
@@ -353,6 +389,39 @@ struct ModelSelectorMenuRow: View {
                     .font(AppTheme.uiFont(13, weight: .regular))
                     .foregroundStyle(.secondary)
                 Text("Context \(preset.contextWindowLabel)")
+                    .font(AppTheme.uiFont(12, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 16)
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(AppTheme.uiFont(15, weight: .regular))
+            }
+        }
+        .frame(minWidth: 260, alignment: .leading)
+        .padding(.vertical, 6)
+    }
+}
+
+private struct CustomModelSelectorMenuRow: View {
+    let provider: LLMProvider
+    let modelIdentifier: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Custom Model")
+                    .font(AppTheme.headingFont(15, weight: .regular))
+                Text(provider.normalizedModelIdentifier(modelIdentifier))
+                    .font(AppTheme.uiFont(13, weight: .regular))
+                    .foregroundStyle(.secondary)
+                Text("Version \(provider.versionLabel(for: modelIdentifier))")
+                    .font(AppTheme.uiFont(12, weight: .regular))
+                    .foregroundStyle(.secondary)
+                Text("Context \(TokenFormatting.windowLabel(provider.contextWindowTokens(for: modelIdentifier)))")
                     .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
             }

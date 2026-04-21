@@ -38,17 +38,9 @@ struct MessageBubbleView: View {
                     }
                 }
                 .modifier(MessageContainerStyle(role: message.role))
-                .overlay(alignment: .topTrailing) {
-                    if isHovering && message.role == .assistant {
-                        HStack(spacing: 8) {
-                            if canOpenInWorkspace {
-                                openWorkspaceButton
-                            }
-                            copyButton
-                        }
-                            .padding(.top, 8)
-                            .padding(.trailing, 8)
-                    }
+
+                if isHovering, message.role == .assistant, hasEditableText {
+                    assistantActionRow
                 }
 
                 if isHovering, message.role == .user, hasEditableText {
@@ -59,12 +51,15 @@ struct MessageBubbleView: View {
                 maxWidth: contentMaxWidth,
                 alignment: message.role == .user ? .trailing : .leading
             )
+            .contentShape(Rectangle())
             .animation(.easeInOut(duration: 0.15), value: isHovering)
 
             if message.role != .user {
                 Spacer(minLength: 120)
             }
         }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .contextMenu {
             if canOpenInWorkspace {
@@ -145,71 +140,59 @@ struct MessageBubbleView: View {
         hasWorkspaceContent && onOpenInWorkspace != nil
     }
 
-    private var copyButton: some View {
-        Button {
-            copyMessageText()
-        } label: {
-            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                .font(AppTheme.uiFont(12, weight: .semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(AppTheme.surfacePrimary)
-                .clipShape(Circle())
-                .overlay(
-                    Circle().stroke(AppTheme.border, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-    }
-
-    private var editButton: some View {
-        Button {
-            onEditUserMessage?()
-        } label: {
-            Image(systemName: "pencil")
-                .font(AppTheme.uiFont(12, weight: .semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(AppTheme.surfacePrimary)
-                .clipShape(Circle())
-                .overlay(
-                    Circle().stroke(AppTheme.border, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-    }
-
-    private var openWorkspaceButton: some View {
-        Button {
-            onOpenInWorkspace?()
-        } label: {
-            Image(systemName: "square.split.2x1")
-                .font(AppTheme.uiFont(12, weight: .semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(AppTheme.surfacePrimary)
-                .clipShape(Circle())
-                .overlay(
-                    Circle().stroke(AppTheme.border, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-    }
-
     private var userActionRow: some View {
         HStack(spacing: 8) {
             Spacer(minLength: 0)
+
             if canOpenInWorkspace {
-                openWorkspaceButton
+                Button {
+                    onOpenInWorkspace?()
+                } label: {
+                    Label("Workspace", systemImage: "square.split.2x1")
+                }
+                .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
             }
-            copyButton
-            editButton
+
+            Button {
+                copyMessageText()
+            } label: {
+                Label(didCopy ? "Copied" : "Copy", systemImage: didCopy ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+
+            Button {
+                onEditUserMessage?()
+            } label: {
+                Label("Edit Prompt", systemImage: "pencil")
+            }
+            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
         }
         .frame(maxWidth: .infinity)
         .padding(.trailing, 4)
+    }
+
+    private var assistantActionRow: some View {
+        HStack(spacing: 8) {
+            if canOpenInWorkspace {
+                Button {
+                    onOpenInWorkspace?()
+                } label: {
+                    Label("Workspace", systemImage: "square.split.2x1")
+                }
+                .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+            }
+
+            Button {
+                copyMessageText()
+            } label: {
+                Label(didCopy ? "Copied" : "Copy", systemImage: didCopy ? "checkmark" : "doc.on.doc")
+            }
+            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 2)
     }
 
     private func copyMessageText() {
@@ -572,14 +555,14 @@ struct MarkdownLayoutBlock: Identifiable, Equatable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
-    private static func isTableSeparatorCell(_ value: String) -> Bool {
+    private nonisolated static func isTableSeparatorCell(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         let core = trimmed.replacingOccurrences(of: ":", with: "")
         return core.count >= 3 && Set(core) == Set(["-"])
     }
 
-    private static func tableAlignment(for separator: String) -> MarkdownTableAlignment {
+    private nonisolated static func tableAlignment(for separator: String) -> MarkdownTableAlignment {
         let trimmed = separator.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasLeadingColon = trimmed.hasPrefix(":")
         let hasTrailingColon = trimmed.hasSuffix(":")

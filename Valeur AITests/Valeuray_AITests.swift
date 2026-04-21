@@ -120,6 +120,12 @@ struct LLMProviderTests {
         #expect(geminiCapabilities.supportsVisionInput)
         #expect(geminiCapabilities.supportsWebSearch)
         #expect(geminiCapabilities.supportsImageGeneration == false)
+
+        let openRouterCapabilities = LLMProvider.openRouter.capabilities(for: LLMProvider.openRouter.defaultModel)
+        #expect(openRouterCapabilities.supportsVisionInput)
+        #expect(openRouterCapabilities.supportsDocumentInput)
+        #expect(openRouterCapabilities.supportsWebSearch)
+        #expect(openRouterCapabilities.supportsImageGeneration == false)
     }
 
     @Test func imageGenerationModelResolutionUsesCapabilityMetadata() {
@@ -167,10 +173,18 @@ struct WorkspaceSeedFactoryTests {
         """, attachments: attachments)
 
         #expect(seeds.map(\.kind) == [.image, .text, .table, .image, .chart])
-        #expect(seeds[1].content.contains("## Summary"))
+        #expect(seeds[1].content.contains("Summary"))
+        #expect(seeds[1].attachmentsData != nil)
         #expect(WorkspaceSeedFactory.decodeTable(from: seeds[2].content)?.rows == [["Revenue", "12"]])
         #expect(WorkspaceSeedFactory.decodeImagePayload(from: seeds[3].content).remoteURLString == "https://example.com/diagram.png")
         #expect(WorkspaceSeedFactory.decodeChart(from: seeds[4].content)?.title == "Revenue")
+    }
+
+    @Test func textStorageFallsBackToLegacyMarkdownWhenRichTextDataIsMissing() {
+        let attributed = WorkspaceTextStorage.attributedString(plainText: "# Heading\n\nParagraph", richTextData: nil)
+
+        #expect(attributed.string.contains("Heading"))
+        #expect(attributed.string.contains("Paragraph"))
     }
 
     @Test func workspaceTitleUsesContentPreviewBeforeFallback() {
@@ -221,6 +235,25 @@ struct WorkspaceAIRevisionSupportTests {
 
         #expect(seed.kind == .table)
         #expect(WorkspaceSeedFactory.decodeTable(from: seed.content)?.rows == [["Revenue", "12"]])
+    }
+
+    @Test func revisedSeedParsesTextHTMLResponse() throws {
+        let block = WorkspaceBlockRecord(
+            kind: .text,
+            sortOrder: 0,
+            storedContent: "Draft"
+        )
+
+        let seed = try WorkspaceAIRevisionComposer.revisedSeed(
+            from: "<h1>Launch Plan</h1><p>Ship the release this week.</p>",
+            originalBlock: block
+        )
+
+        let attributed = WorkspaceTextStorage.attributedString(plainText: seed.content, richTextData: seed.attachmentsData)
+        #expect(seed.kind == .text)
+        #expect(seed.attachmentsData != nil)
+        #expect(attributed.string.contains("Launch Plan"))
+        #expect(attributed.string.contains("Ship the release this week."))
     }
 }
 
@@ -760,6 +793,10 @@ struct ProviderServiceIntegrationTests {
             from: GeminiService(apiKey: "").streamResponse(for: request),
             providerName: "Google Gemini"
         )
+        await assertMissingAPIKey(
+            from: OpenRouterService(apiKey: "").streamResponse(for: request),
+            providerName: "OpenRouter"
+        )
     }
 
     @Test func imageGenerationRejectsMissingOpenAIAPIKeyBeforeNetworkAccess() async throws {
@@ -869,6 +906,14 @@ struct ProviderStreamParserFixtureTests {
         }
     }
 
+    @Test func openRouterParsesStreamingAndRecoveredFixtures() throws {
+        let tokenEvents = try ProviderStreamParserTestHarness.parseOpenRouterEvent(#"{"choices":[{"delta":{"content":"Hello from OpenRouter"}}]}"#)
+        let recoveredEvents = try ProviderStreamParserTestHarness.recoverOpenRouterNonStreamingBody(#"{"choices":[{"message":{"role":"assistant","content":"Recovered OpenRouter answer"}}]}"#)
+
+        #expect(eventDescriptions(tokenEvents) == ["token:Hello from OpenRouter"])
+        #expect(eventDescriptions(recoveredEvents) == ["token:Recovered OpenRouter answer"])
+    }
+
     private func eventDescriptions(_ events: [LLMStreamEvent]) -> [String] {
         events.map { event in
             switch event {
@@ -965,6 +1010,37 @@ struct ProviderRequestBodyFixtureTests {
         let parts = try #require(contents.first?["parts"] as? [[String: Any]])
         let inlineData = try #require(parts.last?["inlineData"] as? [String: Any])
         #expect(inlineData["mimeType"] as? String == "image/png")
+    }
+
+    @Test func openRouterRequestBodyIncludesPluginsSystemAndFileParts() throws {
+        let pdfData = Data("pdf".utf8)
+        let request = ChatRequest(
+            messages: [
+                ChatMessagePayload(
+                    role: .user,
+                    content: "Summarize this PDF",
+                    attachments: [MessageAttachment(data: pdfData, mimeType: "application/pdf")]
+                )
+            ],
+            systemPrompt: "Answer with bullet points",
+            model: "anthropic/claude-sonnet-4",
+            allowsWebSearch: true
+        )
+
+        let json = try ProviderStreamParserTestHarness.openRouterRequestBody(for: request)
+
+        #expect(json["model"] as? String == "anthropic/claude-sonnet-4")
+        let plugins = try #require(json["plugins"] as? [[String: Any]])
+        #expect(plugins.contains(where: { $0["id"] as? String == "web" }))
+        #expect(plugins.contains(where: { $0["id"] as? String == "file-parser" }))
+
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        #expect(messages.first?["role"] as? String == "system")
+        #expect(messages.first?["content"] as? String == "Answer with bullet points")
+
+        let content = try #require(messages.last?["content"] as? [[String: Any]])
+        #expect(content.first?["type"] as? String == "text")
+        #expect(content.last?["type"] as? String == "file")
     }
 }
 

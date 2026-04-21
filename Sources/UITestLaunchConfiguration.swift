@@ -31,6 +31,17 @@ enum UITestLaunchConfiguration {
         arguments.contains("--ui-testing-open-settings") || environment["UI_TEST_OPEN_SETTINGS"] == "1"
     }
 
+    static var settingsCategory: SettingsCategory? {
+        if let value = environment["UI_TEST_SETTINGS_CATEGORY"] {
+            return SettingsCategory.allCases.first { $0.rawValue.caseInsensitiveCompare(value) == .orderedSame }
+        }
+        guard let index = arguments.firstIndex(of: "--ui-testing-settings-category"),
+              arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return SettingsCategory.allCases.first { $0.rawValue.caseInsensitiveCompare(arguments[index + 1]) == .orderedSame }
+    }
+
     static var screen: Screen? {
         if let value = environment["UI_TEST_SCREEN"] {
             return Screen(rawValue: value)

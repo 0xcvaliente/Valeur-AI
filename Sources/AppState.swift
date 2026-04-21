@@ -368,6 +368,65 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    func testProviderModel(_ provider: LLMProvider, modelIdentifier: String) async throws {
+        let resolvedModel = provider.normalizedModelIdentifier(modelIdentifier)
+        let request = ChatRequest(
+            messages: [
+                ChatMessagePayload(role: .user, content: "Reply with OK only.")
+            ],
+            systemPrompt: nil,
+            model: resolvedModel,
+            allowsWebSearch: false
+        )
+
+        appState.serviceFactory.invalidate(for: provider)
+        let service = appState.serviceFactory.makeService(provider: provider)
+        for try await event in service.streamResponse(for: request) {
+            switch event {
+            case .token(let token):
+                if !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return
+                }
+            case .finished:
+                return
+            default:
+                continue
+            }
+        }
+
+        throw ServiceError.invalidResponse
+    }
+
+    func testAPIKey(for provider: LLMProvider) async throws {
+        appState.serviceFactory.invalidate(for: provider)
+
+        let modelIdentifier = provider.presets.first?.modelIdentifier ?? provider.defaultModel
+        let request = ChatRequest(
+            messages: [
+                ChatMessagePayload(role: .user, content: "Reply with OK only.")
+            ],
+            systemPrompt: nil,
+            model: provider.normalizedModelIdentifier(modelIdentifier),
+            allowsWebSearch: false
+        )
+
+        let service = appState.serviceFactory.makeService(provider: provider)
+        for try await event in service.streamResponse(for: request) {
+            switch event {
+            case .token(let token):
+                if !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return
+                }
+            case .finished:
+                return
+            case .started, .status:
+                continue
+            }
+        }
+
+        throw ServiceError.invalidResponse
+    }
+
     func selectModelPreset(_ preset: LLMModelPreset) {
         guard let conversation = selectedConversation else { return }
         do {

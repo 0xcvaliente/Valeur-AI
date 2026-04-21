@@ -77,6 +77,8 @@ final class LLMServiceFactory {
             AnthropicService(apiKey: settingsStore.apiKey(for: .anthropic))
         case .gemini:
             GeminiService(apiKey: settingsStore.apiKey(for: .gemini))
+        case .openRouter:
+            OpenRouterService(apiKey: settingsStore.apiKey(for: .openRouter))
         }
     }
 }

@@ -103,6 +103,7 @@ struct ChatWindowView: View {
             }
             .sheet(isPresented: $showWorkspace) {
                 WorkspaceView(viewModel: workspaceViewModel)
+                    .environmentObject(settingsStore)
                     .frame(minWidth: 1180, minHeight: 780)
             }
             .alert("Error", isPresented: chatErrorBinding) {

@@ -25,10 +25,10 @@ struct SettingsView: View {
     @ObservedObject var viewModel: ChatViewModel
     @EnvironmentObject private var settingsStore: SettingsStore
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedCategory: SettingsCategory? = .defaults
+    @State private var selectedCategory: SettingsCategory? = UITestLaunchConfiguration.settingsCategory ?? .defaults
 
     var body: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(SettingsCategory.allCases) { category in
@@ -48,20 +48,14 @@ struct SettingsView: View {
                 .padding(.vertical, 12)
                 .padding(.horizontal, 10)
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
-            .toolbar(removing: .sidebarToggle)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
-                        .accessibilityIdentifier("settings.doneButton")
-                }
-            }
-        } detail: {
+            .frame(minWidth: 180, idealWidth: 200, maxWidth: 220)
+
+            Divider()
+
             Group {
                 switch selectedCategory {
                 case .defaults:
-                    SettingsDefaultsPanel()
+                    SettingsDefaultsPanel(viewModel: viewModel)
                 case .appearance:
                     SettingsAppearancePanel()
                 case .personalization:
@@ -75,6 +69,13 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+                    .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
+                    .accessibilityIdentifier("settings.doneButton")
+            }
         }
         .preferredColorScheme(settingsStore.appAppearance.colorScheme)
         .tint(AppTheme.accent)
@@ -119,7 +120,11 @@ private struct SettingsCategoryRow: View {
 // MARK: - Defaults
 
 private struct SettingsDefaultsPanel: View {
+    @ObservedObject var viewModel: ChatViewModel
     @EnvironmentObject private var settingsStore: SettingsStore
+    @State private var customModelID = ""
+    @State private var customModelTestMessage: String?
+    @State private var isTestingCustomModel = false
 
     var body: some View {
         SettingsPanelScroll {
@@ -144,6 +149,7 @@ private struct SettingsDefaultsPanel: View {
                         ForEach(settingsStore.defaultProvider.presets) { preset in
                             Button {
                                 settingsStore.selectedModel = preset.modelIdentifier
+                                customModelTestMessage = nil
                             } label: {
                                 ModelSelectorMenuRow(
                                     preset: preset,
@@ -161,6 +167,8 @@ private struct SettingsDefaultsPanel: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize(horizontal: false, vertical: true)
 
+                customModelSection
+
                 SettingsFieldLabel("Context Window")
                 SettingsContextWindowCard(
                     tokenLimit: settingsStore.contextWindowTokens(
@@ -177,7 +185,7 @@ private struct SettingsDefaultsPanel: View {
                         Text("Allow Provider Web Search")
                             .font(AppTheme.uiFont(13, weight: .medium))
                             .foregroundStyle(AppTheme.textPrimary)
-                        Text("Off by default. When enabled, OpenAI and Gemini may call their provider-side search tools for the current request.")
+                        Text("Off by default. When enabled, OpenAI, Gemini, and OpenRouter may call provider-side search tools for the current request.")
                             .font(AppTheme.uiFont(11, weight: .medium))
                             .foregroundStyle(AppTheme.textSecondary)
                     }
@@ -200,6 +208,102 @@ private struct SettingsDefaultsPanel: View {
                 Text("Choose a provider here, then set the model used for that provider. The sidebar selector switches provider for the current chat, and that chat uses the model configured here.")
                     .font(AppTheme.uiFont(11, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+            }
+        }
+        .onAppear {
+            customModelID = initialCustomModelID(for: settingsStore.defaultProvider)
+        }
+        .onChange(of: settingsStore.defaultProvider) { _, provider in
+            customModelID = initialCustomModelID(for: provider)
+            customModelTestMessage = nil
+        }
+    }
+
+    private var customModelSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsFieldLabel("Custom \(settingsStore.defaultProvider.displayName) Model ID")
+            TextField(settingsStore.defaultProvider.defaultModel, text: Binding(
+                get: { customModelID },
+                set: {
+                    customModelID = $0
+                    customModelTestMessage = nil
+                }
+            ))
+            .settingsInputStyle()
+
+            HStack(spacing: 10) {
+                Button("Use This Model") {
+                    applyCustomModel()
+                }
+                .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
+                .disabled(trimmedCustomModelID.isEmpty)
+
+                Button(isTestingCustomModel ? "Testing..." : "Test Model") {
+                    testCustomModel()
+                }
+                .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+                .disabled(trimmedCustomModelID.isEmpty || isTestingCustomModel)
+            }
+
+            Text("Type any model ID for \(settingsStore.defaultProvider.displayName), test it, then apply it. If your active chat already uses this provider, applying the model updates that chat too.")
+                .font(AppTheme.uiFont(11, weight: .medium))
+                .foregroundStyle(AppTheme.textSecondary)
+
+            if let customModelTestMessage {
+                Text(customModelTestMessage)
+                    .font(AppTheme.uiFont(11, weight: .medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+        }
+    }
+
+    private var trimmedCustomModelID: String {
+        customModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func initialCustomModelID(for provider: LLMProvider) -> String {
+        let savedCustomModel = settingsStore.customModelIdentifier(for: provider)
+        if !savedCustomModel.isEmpty {
+            return savedCustomModel
+        }
+
+        let selectedModel = settingsStore.selectedModel(for: provider)
+        return provider.preset(for: selectedModel) == nil ? selectedModel : ""
+    }
+
+    private func applyCustomModel() {
+        let provider = settingsStore.defaultProvider
+        let resolvedModel = provider.normalizedModelIdentifier(trimmedCustomModelID)
+        settingsStore.setCustomModelIdentifier(resolvedModel, for: provider)
+        settingsStore.setSelectedModel(resolvedModel, for: provider)
+        customModelID = resolvedModel
+
+        if viewModel.selectedConversation?.provider == provider {
+            viewModel.updateModel(resolvedModel)
+        }
+
+        customModelTestMessage = "\(provider.displayName) will use \(resolvedModel) for new chats and when switching a chat to \(provider.displayName)."
+    }
+
+    private func testCustomModel() {
+        let provider = settingsStore.defaultProvider
+        let resolvedModel = provider.normalizedModelIdentifier(trimmedCustomModelID)
+        customModelID = resolvedModel
+        isTestingCustomModel = true
+        customModelTestMessage = nil
+
+        Task {
+            do {
+                try await viewModel.testProviderModel(provider, modelIdentifier: resolvedModel)
+                await MainActor.run {
+                    isTestingCustomModel = false
+                    customModelTestMessage = "\(provider.displayName) accepted \(resolvedModel)."
+                }
+            } catch {
+                await MainActor.run {
+                    isTestingCustomModel = false
+                    customModelTestMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -368,6 +472,8 @@ private struct SettingsAPIKeysPanel: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @State private var apiKeys: [LLMProvider: String] = [:]
     @State private var saveMessage: String?
+    @State private var apiKeyCheckMessages: [LLMProvider: String] = [:]
+    @State private var checkingProviders: Set<LLMProvider> = []
 
     var body: some View {
         SettingsPanelScroll {
@@ -460,6 +566,7 @@ private struct SettingsAPIKeysPanel: View {
                             get: { apiKeys[provider] ?? "" },
                             set: { newValue in
                                 apiKeys[provider] = newValue
+                                apiKeyCheckMessages[provider] = nil
                                 do {
                                     try settingsStore.setAPIKey(newValue, for: provider)
                                     viewModel.invalidateServiceCache(for: provider)
@@ -470,6 +577,20 @@ private struct SettingsAPIKeysPanel: View {
                             }
                         ))
                         .settingsInputStyle()
+
+                        HStack(spacing: 10) {
+                            Button(checkingProviders.contains(provider) ? "Checking..." : "Check API Key") {
+                                testAPIKey(for: provider)
+                            }
+                            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+                            .disabled((apiKeys[provider] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || checkingProviders.contains(provider))
+
+                            if let message = apiKeyCheckMessages[provider] {
+                                Text(message)
+                                    .font(AppTheme.uiFont(11, weight: .medium))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                        }
                     }
                 }
 
@@ -483,6 +604,26 @@ private struct SettingsAPIKeysPanel: View {
         .onAppear {
             for provider in LLMProvider.allCases {
                 apiKeys[provider] = settingsStore.apiKey(for: provider)
+            }
+        }
+    }
+
+    private func testAPIKey(for provider: LLMProvider) {
+        checkingProviders.insert(provider)
+        apiKeyCheckMessages[provider] = nil
+
+        Task {
+            do {
+                try await viewModel.testAPIKey(for: provider)
+                await MainActor.run {
+                    checkingProviders.remove(provider)
+                    apiKeyCheckMessages[provider] = "\(provider.displayName) API key is working."
+                }
+            } catch {
+                await MainActor.run {
+                    checkingProviders.remove(provider)
+                    apiKeyCheckMessages[provider] = error.localizedDescription
+                }
             }
         }
     }

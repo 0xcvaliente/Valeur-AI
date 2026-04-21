@@ -17,6 +17,7 @@ struct ComposerView: View {
     @State private var isImportingRemoteImage = false
     @State private var textViewHeight: CGFloat = 38
     @State private var placeholderIndex = 0
+    @StateObject private var undoController = ComposerTextUndoController()
     private let compactTextInset: CGFloat = 8
     private let placeholderRotationTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
     private let chatPlaceholderPrompts: [String] = [
@@ -146,6 +147,7 @@ struct ComposerView: View {
                     minHeight: 38,
                     maxHeight: 120,
                     verticalInset: compactTextInset,
+                    undoController: undoController,
                     onSubmit: handlePrimaryAction
                 )
                 .frame(height: textViewHeight)
@@ -232,6 +234,22 @@ struct ComposerView: View {
                 llmSelector
 
                 Spacer()
+
+                Button {
+                    undoController.undo()
+                } label: {
+                    ComposerCircleButton(icon: "arrow.uturn.backward")
+                }
+                .buttonStyle(.plain)
+                .disabled(!undoController.canUndo)
+
+                Button {
+                    undoController.redo()
+                } label: {
+                    ComposerCircleButton(icon: "arrow.uturn.forward")
+                }
+                .buttonStyle(.plain)
+                .disabled(!undoController.canRedo)
 
                 Button(action: handlePrimaryAction) {
                     ComposerCircleButton(
@@ -627,6 +645,7 @@ struct GrowingTextView: NSViewRepresentable {
     let minHeight: CGFloat
     let maxHeight: CGFloat
     let verticalInset: CGFloat
+    let undoController: ComposerTextUndoController
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -636,6 +655,7 @@ struct GrowingTextView: NSViewRepresentable {
             minHeight: minHeight,
             maxHeight: maxHeight,
             verticalInset: verticalInset,
+            undoController: undoController,
             onSubmit: onSubmit
         )
     }
@@ -653,7 +673,14 @@ struct GrowingTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+        textView.allowsUndo = true
         textView.submitHandler = onSubmit
+        textView.groupedUndoManager.closeGroupHandler = { [weak textView, weak coordinator = context.coordinator] in
+            guard let textView, let coordinator else { return }
+            coordinator.closeWordGroup(for: textView)
+        }
+        context.coordinator.undoController.textView = textView
+        context.coordinator.undoController.updateState()
         if #available(macOS 15.0, *) {
             textView.writingToolsBehavior = .none
         }
@@ -675,7 +702,8 @@ struct GrowingTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? SubmitAwareTextView else { return }
-        if textView.string != text {
+        if context.coordinator.shouldApplyModelText(text, to: textView) {
+            context.coordinator.closeWordGroup(for: textView)
             textView.string = text
         }
         textView.font = AppTheme.uiNSFont(16, weight: .regular)
@@ -683,6 +711,8 @@ struct GrowingTextView: NSViewRepresentable {
         textView.insertionPointColor = NSColor(AppTheme.textPrimary)
         textView.submitHandler = onSubmit
         textView.textContainerInset = NSSize(width: 10, height: verticalInset)
+        context.coordinator.undoController.textView = textView
+        context.coordinator.undoController.updateState()
         context.coordinator.recalculateHeight(for: textView)
     }
 
@@ -692,7 +722,12 @@ struct GrowingTextView: NSViewRepresentable {
         let minHeight: CGFloat
         let maxHeight: CGFloat
         let verticalInset: CGFloat
+        let undoController: ComposerTextUndoController
         let onSubmit: () -> Void
+        private var wordGroupOpen = false
+        private var shouldCloseWordGroupAfterChange = false
+        private var isTyping = false
+        private var isSyncingLocalEdit = false
 
         init(
             text: Binding<String>,
@@ -700,6 +735,7 @@ struct GrowingTextView: NSViewRepresentable {
             minHeight: CGFloat,
             maxHeight: CGFloat,
             verticalInset: CGFloat,
+            undoController: ComposerTextUndoController,
             onSubmit: @escaping () -> Void
         ) {
             self._text = text
@@ -707,18 +743,83 @@ struct GrowingTextView: NSViewRepresentable {
             self.minHeight = minHeight
             self.maxHeight = maxHeight
             self.verticalInset = verticalInset
+            self.undoController = undoController
             self.onSubmit = onSubmit
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            guard let replacement = replacementString else {
+                openWordGroupIfNeeded(for: textView)
+                shouldCloseWordGroupAfterChange = true
+                isTyping = false
+                return true
+            }
+
+            let isWordBoundary = replacement.unicodeScalars.contains(where: {
+                CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).contains($0)
+            })
+            let shouldTreatAsStandaloneEdit = replacement.isEmpty || replacement.count > 1 || isWordBoundary
+
+            openWordGroupIfNeeded(for: textView)
+            shouldCloseWordGroupAfterChange = shouldTreatAsStandaloneEdit
+            isTyping = !shouldTreatAsStandaloneEdit
+
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            markLocalEditInFlight()
             text = textView.string
+            if shouldCloseWordGroupAfterChange {
+                closeWordGroup(for: textView)
+            }
+            undoController.updateState()
             recalculateHeight(for: textView)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            if !isTyping {
+                closeWordGroup(for: textView)
+            }
+            isTyping = false
+            undoController.updateState()
         }
 
         func textDidEndEditing(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            closeWordGroup(for: textView)
+            undoController.updateState()
             recalculateHeight(for: textView)
+        }
+
+        func closeWordGroup(for textView: NSTextView) {
+            guard wordGroupOpen else { return }
+            textView.undoManager?.endUndoGrouping()
+            wordGroupOpen = false
+            shouldCloseWordGroupAfterChange = false
+        }
+
+        private func openWordGroupIfNeeded(for textView: NSTextView) {
+            guard !wordGroupOpen else { return }
+            textView.undoManager?.beginUndoGrouping()
+            wordGroupOpen = true
+        }
+
+        func shouldApplyModelText(_ text: String, to textView: SubmitAwareTextView) -> Bool {
+            guard textView.string != text else { return false }
+            if isSyncingLocalEdit, textView.window?.firstResponder === textView {
+                return false
+            }
+            return true
+        }
+
+        private func markLocalEditInFlight() {
+            isSyncingLocalEdit = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isSyncingLocalEdit = false
+            }
         }
 
         func recalculateHeight(for textView: NSTextView) {
@@ -739,14 +840,88 @@ struct GrowingTextView: NSViewRepresentable {
     }
 }
 
+final class ComposerTextUndoController: ObservableObject {
+    weak var textView: NSTextView?
+
+    @Published var canUndo = false
+    @Published var canRedo = false
+
+    func updateState() {
+        let canUndo = textView?.undoManager?.canUndo ?? false
+        let canRedo = textView?.undoManager?.canRedo ?? false
+        DispatchQueue.main.async { [weak self] in
+            self?.canUndo = canUndo
+            self?.canRedo = canRedo
+        }
+    }
+
+    func undo() {
+        textView?.undoManager?.undo()
+        textView?.window?.makeFirstResponder(textView)
+        updateState()
+    }
+
+    func redo() {
+        textView?.undoManager?.redo()
+        textView?.window?.makeFirstResponder(textView)
+        updateState()
+    }
+}
+
 final class SubmitAwareTextView: NSTextView {
     var submitHandler: (() -> Void)?
+    let groupedUndoManager: GroupedTextUndoManager = {
+        let undoManager = GroupedTextUndoManager()
+        undoManager.groupsByEvent = false
+        return undoManager
+    }()
+
+    override var undoManager: UndoManager? { groupedUndoManager }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleMacTextDeletionShortcut(event) {
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
-            submitHandler?()
-        } else {
-            super.keyDown(with: event)
+        if handleMacTextDeletionShortcut(event) {
+            return
         }
+
+        super.keyDown(with: event)
+    }
+
+    override func doCommand(by selector: Selector) {
+        if selector == #selector(insertNewline(_:)), shouldSubmitCurrentEvent {
+            groupedUndoManager.closeGroupHandler?()
+            submitHandler?()
+            return
+        }
+
+        if shouldCloseGroupedTextUndo(for: selector) {
+            groupedUndoManager.closeGroupHandler?()
+        }
+
+        super.doCommand(by: selector)
+    }
+
+    private var shouldSubmitCurrentEvent: Bool {
+        guard !hasMarkedText(),
+              let event = NSApp.currentEvent,
+              event.type == .keyDown else { return false }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return modifiers.isEmpty
+    }
+
+    private func handleMacTextDeletionShortcut(_ event: NSEvent) -> Bool {
+        guard let selector = macTextDeletionSelector(for: event, allowsMarkedText: !hasMarkedText()) else {
+            return false
+        }
+
+        doCommand(by: selector)
+        return true
     }
 }

@@ -22,14 +22,14 @@ What is in place:
 - Persistent encrypted local conversations (AES-256-GCM)
 - Streaming responses over SSE with retry and stop controls
 - Per-conversation provider and model selection
-- Provider abstraction for OpenAI, Anthropic, and Gemini
+- Provider abstraction for OpenAI, Anthropic, Gemini, and OpenRouter
 - Attachment support for images and PDFs
 - Personalization settings and memory document support
 - Terms & Conditions acceptance on first launch
 - Keychain-backed API key and settings storage with one-time legacy migration
 - Block-based Workspace editor with AI revision and multi-format export
 - Five appearance themes (Light, Dark, System, Orange, Blue) with dynamic accent colors
-- 64 passing Xcode unit tests plus XCUI tests for first-run, settings, and delete flows
+- 68 passing Xcode unit tests plus XCUI tests for first-run, settings, and delete flows
 - DMG and TestFlight packaging scripts
 
 What still needs work before a broader public release:
@@ -55,11 +55,13 @@ What still needs work before a broader public release:
 ### Workspace
 - Block-based document editor launched from any chat session
 - Block types: text, table, chart, image
+- Rich text editing in text blocks: bold, italic, underline, font size, with grouped undo/redo
 - AI revision on any block with streaming output and instruction field
 - Revision history per block — revert to any prior version
 - Multi-format export: PDF, DOCX, HTML, CSV, XLSX, PNG
 - Import from file into any block type
 - Multiple workspaces with sidebar navigation
+- Workspace appearance follows the active app theme
 
 ### Storage and Security
 - Keychain-backed API key storage (no plaintext config files)
@@ -80,7 +82,7 @@ What still needs work before a broader public release:
 
 ## Architecture
 
-28 source files in a flat `Sources/` directory. Clean community structure with no cross-module coupling warnings.
+30 source files in a flat `Sources/` directory. Clean community structure with no cross-module coupling warnings.
 
 | File | Role |
 |---|---|
@@ -109,7 +111,9 @@ What still needs work before a broader public release:
 | `AppCommands.swift` | macOS menu commands |
 | `WorkspaceModels.swift` | `WorkspaceRecord`, `WorkspaceBlock`, block kind enums, revision history |
 | `WorkspaceRepository.swift` | `WorkspaceViewModel` — CRUD, AI revision, import, export (PDF/DOCX/HTML/CSV/XLSX/PNG) |
-| `WorkspaceView.swift` | Block-based editor UI — sidebar, block cards, AI revision sheet, history sheet |
+| `WorkspaceView.swift` | Block-based editor UI — sidebar, block cards, rich text toolbar, AI revision sheet, history sheet |
+| `WorkspaceTextStorage.swift` | Rich text ↔ markdown/HTML conversion for text blocks, shared by editor and export |
+| `GroupedTextEditing.swift` | `NSTextView` undo grouping and macOS deletion key selectors for the workspace editor |
 | `ExportService.swift` | Export rendering pipeline for all workspace output formats |
 | `SpreadsheetSupport.swift` | XLSX read/write support for table block import and export |
 
@@ -135,7 +139,7 @@ What still needs work before a broader public release:
 ### Limitations
 
 - Not end-to-end encryption. The app decrypts locally to display and send messages.
-- Provider requests send message content, prompts, and attachments to the selected AI provider over HTTPS. OpenAI, Anthropic, and Google process plaintext on their end.
+- Provider requests send message content, prompts, and attachments to the selected AI provider over HTTPS. OpenAI, Anthropic, Google, and OpenRouter process plaintext on their end.
 - If the local macOS account and user session are fully compromised, local encryption at rest does not prevent access — Keychain access follows the user session.
 - SwiftData migration failure triggers a store wipe and in-memory fallback without a user-visible alert.
 
@@ -170,12 +174,12 @@ Valeur AI is local-first, not local-only.
 ## Repository Layout
 
 ```
-Sources/                  Application source (28 files)
+Sources/                  Application source (30 files)
 Assets.xcassets/          Icons and brand assets
 Distribution/             Export option templates and packaging assets
 script/                   Local build and release shell scripts
 Tests/                    SwiftPM test targets
-Valeur AITests/           64 Xcode unit tests (Swift Testing)
+Valeur AITests/           68 Xcode unit tests (Swift Testing)
 Valeur AIUITests/         XCUI tests for first-run, settings, and delete flows
 valeuray.xcodeproj/       Primary Xcode project
 Package.swift             SwiftPM package definition
@@ -213,6 +217,7 @@ On first launch, accept the Terms & Conditions, then open Settings and add at le
 - OpenAI
 - Anthropic
 - Google Gemini
+- OpenRouter
 
 Additional settings:
 
