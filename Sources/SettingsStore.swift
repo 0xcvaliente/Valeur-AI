@@ -27,22 +27,19 @@ final class SettingsStore: ObservableObject {
 
     @Published var systemPrompt: String {
         didSet {
-            try? keychain.save(systemPrompt, for: Keys.Keychain.systemPrompt)
-            defaults.removeObject(forKey: Keys.Legacy.systemPrompt)
+            persistKeychainValue(systemPrompt, account: Keys.Keychain.systemPrompt, legacyKey: Keys.Legacy.systemPrompt)
         }
     }
 
     @Published var customInstructions: String {
         didSet {
-            try? keychain.save(customInstructions, for: Keys.Keychain.customInstructions)
-            defaults.removeObject(forKey: Keys.Legacy.customInstructions)
+            persistKeychainValue(customInstructions, account: Keys.Keychain.customInstructions, legacyKey: Keys.Legacy.customInstructions)
         }
     }
 
     @Published var userName: String {
         didSet {
-            try? keychain.save(userName, for: Keys.Keychain.userName)
-            defaults.removeObject(forKey: Keys.Legacy.userName)
+            persistKeychainValue(userName, account: Keys.Keychain.userName, legacyKey: Keys.Legacy.userName)
         }
     }
 
@@ -54,10 +51,14 @@ final class SettingsStore: ObservableObject {
         didSet {
             if memoryDocumentContent.isEmpty {
                 try? keychain.delete(account: Keys.Keychain.memoryDocumentContent)
+                defaults.removeObject(forKey: Keys.Legacy.memoryDocumentContent)
             } else {
-                try? keychain.save(memoryDocumentContent, for: Keys.Keychain.memoryDocumentContent)
+                persistKeychainValue(
+                    memoryDocumentContent,
+                    account: Keys.Keychain.memoryDocumentContent,
+                    legacyKey: Keys.Legacy.memoryDocumentContent
+                )
             }
-            defaults.removeObject(forKey: Keys.Legacy.memoryDocumentContent)
         }
     }
 
@@ -98,7 +99,7 @@ final class SettingsStore: ObservableObject {
         self.userName = Self.migrateToKeychain(keychain: keychain, account: Keys.Keychain.userName, legacyKey: Keys.Legacy.userName, defaults: defaults)
         self.memoryDocumentName = defaults.string(forKey: Keys.memoryDocumentName) ?? ""
         self.memoryDocumentContent = Self.migrateToKeychain(keychain: keychain, account: Keys.Keychain.memoryDocumentContent, legacyKey: Keys.Legacy.memoryDocumentContent, defaults: defaults)
-        self.appAppearance = AppAppearance(rawValue: defaults.string(forKey: Keys.appAppearance) ?? "") ?? .light
+        self.appAppearance = AppAppearance.parse(defaults.string(forKey: Keys.appAppearance))
         self.appFontFamilyName = Self.normalizeFontFamilyName(defaults.string(forKey: Keys.appFontFamily))
         self.appFontSize = AppFontSize(rawValue: defaults.string(forKey: Keys.appFontSize) ?? "") ?? .normal
         self.webSearchEnabled = defaults.object(forKey: Keys.webSearchEnabled) as? Bool ?? false
@@ -109,7 +110,7 @@ final class SettingsStore: ObservableObject {
         ensureSelectedModel(for: defaultProvider)
     }
 
-    static func normalizeFontFamilyName(_ rawValue: String?) -> String {
+    nonisolated static func normalizeFontFamilyName(_ rawValue: String?) -> String {
         let trimmed = (rawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return AppTheme.nexaFontFamilyName }
 
@@ -307,14 +308,26 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    private func persistKeychainValue(_ value: String, account: String, legacyKey: String? = nil) {
+        do {
+            try keychain.save(value, for: account)
+            if let legacyKey {
+                defaults.removeObject(forKey: legacyKey)
+            }
+        } catch {
+            // Keep legacy storage intact until the secure write succeeds.
+        }
+    }
+
     private static func migrateToKeychain(keychain: KeychainService, account: String, legacyKey: String, defaults: UserDefaults) -> String {
         if let value = try? keychain.read(account: account) {
             return value
         }
         let legacy = defaults.string(forKey: legacyKey) ?? ""
         if !legacy.isEmpty {
-            try? keychain.save(legacy, for: account)
-            defaults.removeObject(forKey: legacyKey)
+            if (try? keychain.save(legacy, for: account)) != nil {
+                defaults.removeObject(forKey: legacyKey)
+            }
         }
         return legacy
     }
@@ -393,14 +406,14 @@ final class SettingsStore: ObservableObject {
             }
 
             if url.pathExtension.lowercased() == "pdf" {
-                let data = try Data(contentsOf: url)
+                let data = try await SecureFileAccess.data(from: url, maxBytes: SecureFileAccess.maximumImportBytes)
                 guard let document = PDFDocument(data: data), let text = document.string else {
                     throw PersonalizationError.unsupportedDocument
                 }
                 return text
             }
 
-            if let text = try await SecureFileAccess.text(from: url) {
+            if let text = try await SecureFileAccess.text(from: url, maxBytes: SecureFileAccess.maximumImportBytes) {
                 return text
             }
 
@@ -434,35 +447,38 @@ enum PersonalizationError: LocalizedError {
 
 enum AppAppearance: String, CaseIterable, Identifiable {
     case light
+    case dark
     case system
-    case marineBlue
-    case orange
-    case blue
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .light: "Light"
+        case .dark: "Dark"
         case .system: "System"
-        case .marineBlue: "Dark"
-        case .orange: "Orange"
-        case .blue: "Blue"
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
-        case .light, .orange: .light
+        case .light: .light
+        case .dark: .dark
         case .system: nil
-        case .marineBlue, .blue: .dark
         }
     }
 
-    var usesBlueAccent: Bool { self == .blue }
+    static func parse(_ raw: String?) -> AppAppearance {
+        switch raw {
+        case "light", "orange": .light
+        case "dark", "marineBlue", "blue": .dark
+        case "system": .system
+        default: .system
+        }
+    }
 
     static var current: AppAppearance {
-        AppAppearance(rawValue: UserDefaults.standard.string(forKey: "settings.appAppearance") ?? "") ?? .light
+        parse(UserDefaults.standard.string(forKey: "settings.appAppearance"))
     }
 }
 

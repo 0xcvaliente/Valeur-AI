@@ -9,11 +9,11 @@ enum AppTheme {
         case bold
     }
 
-    // Orange accent — matched to logo
-    static let orange400 = Color(red: 248.0 / 255.0, green: 148.0 / 255.0, blue: 96.0 / 255.0)
-    static let orange500 = Color(red: 241.0 / 255.0, green: 112.0 / 255.0, blue: 52.0 / 255.0)
-    static let orange600 = Color(red: 208.0 / 255.0, green: 82.0 / 255.0, blue: 24.0 / 255.0)
-    static let orange700 = Color(red: 162.0 / 255.0, green: 56.0 / 255.0, blue: 10.0 / 255.0)
+    // Accessible blue accent
+    static let orange400 = Color(red: 147.0 / 255.0, green: 197.0 / 255.0, blue: 253.0 / 255.0)
+    static let orange500 = Color(red: 96.0 / 255.0, green: 165.0 / 255.0, blue: 250.0 / 255.0)
+    static let orange600 = Color(red: 59.0 / 255.0, green: 130.0 / 255.0, blue: 246.0 / 255.0)
+    static let orange700 = Color(red: 37.0 / 255.0, green: 99.0 / 255.0, blue: 235.0 / 255.0)
 
     // Blue accent
     static let blue400 = Color(red: 96.0 / 255.0, green: 165.0 / 255.0, blue: 250.0 / 255.0)
@@ -95,18 +95,14 @@ enum AppTheme {
         dark: Color(nsColor: textSecondaryDark)
     )
     static let logoColor = dynamic(
-        light: orange600,
-        dark: orange400
+        light: blue600,
+        dark: blue400
     )
-    static var accent: Color { AppAppearance.current.usesBlueAccent ? blue500 : orange500 }
-    static var accentDark: Color { AppAppearance.current.usesBlueAccent ? blue600 : orange600 }
-    static var accentBorder: Color { AppAppearance.current.usesBlueAccent ? blue700 : orange700 }
-    static var accentLight: Color { AppAppearance.current.usesBlueAccent ? blue400 : orange400 }
-    static var accentStrong: Color {
-        AppAppearance.current.usesBlueAccent
-            ? dynamic(light: blue600, dark: blue400)
-            : dynamic(light: orange600, dark: orange400)
-    }
+    static var accent: Color { blue500 }
+    static var accentDark: Color { blue600 }
+    static var accentBorder: Color { blue700 }
+    static var accentLight: Color { blue400 }
+    static var accentStrong: Color { dynamic(light: blue600, dark: blue400) }
     static let windowChromeNSColor = dynamicNSColor(
         light: chromeLight,
         dark: chromeDark
@@ -122,8 +118,8 @@ enum AppTheme {
     static let panelPadding: CGFloat = 28
     static let titlebarBackdropHeight: CGFloat = 64
     static let titlebarContentInset: CGFloat = 32
-    static let systemFontFamilyName = "System"
-    static let nexaFontFamilyName = "Nexa"
+    nonisolated static let systemFontFamilyName = "System"
+    nonisolated static let nexaFontFamilyName = "Nexa"
 
     static func uiFont(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         let scaledSize = scaled(size)
@@ -199,12 +195,12 @@ enum AppTheme {
         return SettingsStore.normalizeFontFamilyName(storedValue)
     }
 
-    static func installedFontFamilyNames() -> [String] {
+    nonisolated static func installedFontFamilyNames() -> [String] {
         NSFontManager.shared.availableFontFamilies
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    static func fontFamilyOptions() -> [String] {
+    nonisolated static func fontFamilyOptions() -> [String] {
         let installed = installedFontFamilyNames().filter {
             $0.caseInsensitiveCompare(systemFontFamilyName) != .orderedSame &&
             $0.caseInsensitiveCompare(nexaFontFamilyName) != .orderedSame

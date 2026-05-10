@@ -18,6 +18,14 @@ struct ComposerView: View {
     @State private var textViewHeight: CGFloat = 38
     @State private var placeholderIndex = 0
     @StateObject private var undoController = ComposerTextUndoController()
+    private let composerCornerRadius: CGFloat = 26
+    private let accentBorderGradient = Gradient(colors: [
+        AppTheme.accentLight,
+        AppTheme.accent,
+        AppTheme.accentStrong,
+        AppTheme.accentDark,
+        AppTheme.accentLight
+    ])
     private let compactTextInset: CGFloat = 8
     private let placeholderRotationTimer = Timer.publish(every: 4, on: .main, in: .common).autoconnect()
     private let chatPlaceholderPrompts: [String] = [
@@ -140,135 +148,98 @@ struct ComposerView: View {
                 }
             }
 
-            ZStack(alignment: .topLeading) {
-                GrowingTextView(
-                    text: $text,
-                    measuredHeight: $textViewHeight,
-                    minHeight: 38,
-                    maxHeight: 120,
-                    verticalInset: compactTextInset,
-                    undoController: undoController,
-                    onSubmit: handlePrimaryAction
-                )
-                .frame(height: textViewHeight)
-
-                if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(currentPlaceholderPrompts[placeholderIndex])
-                        .font(AppTheme.uiFont(16, weight: .regular))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .padding(.top, compactTextInset + 1)
-                        .padding(.leading, 16)
-                        .padding(.trailing, 12)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
-                        .transition(.opacity)
-                        .id(placeholderIndex)
-                        .allowsHitTesting(false)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 2)
-
-            HStack(spacing: 6) {
-                modeSelector
-
-                if viewModel.composerMode == .chat {
-                    Menu {
-                        Button {
-                            presentAttachmentImporter(.photos)
-                        } label: {
-                            Label("Add Photos", systemImage: "photo.on.rectangle.angled")
-                        }
-                        .disabled(!viewModel.canUseVisionInput)
-
-                        Button {
-                            isShowingRemoteImageImporter = true
-                        } label: {
-                            Label("Add Image URL", systemImage: "link.badge.plus")
-                        }
-                        .disabled(!viewModel.canUseVisionInput)
-
-                        Button {
-                            presentAttachmentImporter(.pdf)
-                        } label: {
-                            Label("Add PDF", systemImage: "doc.richtext")
-                        }
-                        .disabled(!viewModel.canUseDocumentInput)
-                    } label: {
-                        ComposerCircleButton(icon: "plus")
-                    }
-                    .menuStyle(.borderlessButton)
-
-                    Button { settingsStore.webSearchEnabled.toggle() } label: {
-                        ComposerChipButton(
-                            icon: "globe",
-                            label: settingsStore.webSearchEnabled ? "Web Enabled" : "Web",
-                            isActive: settingsStore.webSearchEnabled
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    TokenContextBadge(
-                        usageFraction: viewModel.tokenUsageFraction,
-                        inputTokenCount: viewModel.inputTokenCount,
-                        outputTokenCount: viewModel.outputTokenCount,
-                        totalTokenCount: viewModel.estimatedTokenCount,
-                        contextTokenLimit: viewModel.contextTokenLimit
+            ZStack(alignment: .bottom) {
+                ZStack(alignment: .topLeading) {
+                    GrowingTextView(
+                        text: $text,
+                        measuredHeight: $textViewHeight,
+                        minHeight: 34,
+                        maxHeight: 120,
+                        verticalInset: compactTextInset,
+                        undoController: undoController,
+                        onSubmit: handlePrimaryAction
                     )
-                } else {
-                    imageSizeSelector
+                    .frame(height: textViewHeight)
+
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(currentPlaceholderPrompts[placeholderIndex])
+                            .font(AppTheme.uiFont(16, weight: .regular))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .padding(.top, compactTextInset + 1)
+                            .padding(.leading, 15)
+                            .padding(.trailing, 15)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                            .transition(.opacity)
+                            .id(placeholderIndex)
+                            .allowsHitTesting(false)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .padding(.leading, 50)
+                .padding(.trailing, 50)
+                .padding(.vertical, 8)
 
-                Button {
-                    startDictation()
-                } label: {
-                    ComposerCircleButton(icon: "mic.fill")
+                HStack(spacing: 6) {
+                    if viewModel.composerMode == .chat {
+                        Menu {
+                            Button {
+                                presentAttachmentImporter(.pdf)
+                            } label: {
+                                Label("Add PDF", systemImage: "doc.richtext")
+                            }
+                            .disabled(!viewModel.canUseDocumentInput)
+                        } label: {
+                            ComposerCircleButton(icon: "plus")
+                        }
+                        .menuStyle(.borderlessButton)
+                    } else {
+                        imageSizeSelector
+                    }
+
+                    Spacer()
+
+                    trailingPrimaryButton
                 }
-                .buttonStyle(.plain)
-
-                if viewModel.composerMode == .chat {
-                    personalitySelector
-                }
-
-                llmSelector
-
-                Spacer()
-
-                Button {
-                    undoController.undo()
-                } label: {
-                    ComposerCircleButton(icon: "arrow.uturn.backward")
-                }
-                .buttonStyle(.plain)
-                .disabled(!undoController.canUndo)
-
-                Button {
-                    undoController.redo()
-                } label: {
-                    ComposerCircleButton(icon: "arrow.uturn.forward")
-                }
-                .buttonStyle(.plain)
-                .disabled(!undoController.canRedo)
-
-                Button(action: handlePrimaryAction) {
-                    ComposerCircleButton(
-                        icon: isSending ? "stop.fill" : "arrow.up",
-                        isProminent: canSend || isSending,
-                        iconForegroundColor: canSend || isSending ? .white : AppTheme.textSecondary
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend && !isSending)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
         }
         .frame(maxWidth: .infinity)
         .background {
-            RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-                .fill(AppTheme.surfacePrimary)
+            RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous)
+                .fill(.clear)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous))
         }
+        .overlay {
+            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isSending)) { context in
+                let elapsed = context.date.timeIntervalSinceReferenceDate
+                let period: Double = 2.4
+                let angle: Double = isSending
+                    ? (elapsed.truncatingRemainder(dividingBy: period) / period) * 360.0
+                    : 0
+                let gradient = AngularGradient(
+                    gradient: accentBorderGradient,
+                    center: .center,
+                    angle: .degrees(angle)
+                )
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous)
+                        .stroke(gradient, lineWidth: 1.6)
+                        .blur(radius: isSending ? 12 : 8)
+                        .opacity(isSending ? 0.95 : 0.62)
+
+                    RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous)
+                        .stroke(gradient, lineWidth: 1.1)
+                        .shadow(color: AppTheme.accent.opacity(isSending ? 0.62 : 0.34), radius: isSending ? 16 : 10)
+
+                    RoundedRectangle(cornerRadius: composerCornerRadius, style: .continuous)
+                        .strokeBorder(gradient, lineWidth: 1.05)
+                }
+            }
+        }
+        .shadow(color: AppTheme.accent.opacity(isSending ? 0.42 : 0.24), radius: isSending ? 16 : 9, x: 0, y: 0)
     }
 
     private var canSend: Bool {
@@ -309,40 +280,35 @@ struct ComposerView: View {
         }
     }
 
-    private var personalitySelector: some View {
-        Menu {
-            ForEach(ChatTone.allCases) { tone in
-                Button {
-                    settingsStore.chatTone = tone
-                } label: {
-                    HStack {
-                        Label(tone.title, systemImage: tone.icon)
-                        if settingsStore.chatTone == tone {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            ComposerChipButton(
-                icon: settingsStore.chatTone.icon,
-                label: settingsStore.chatTone.title,
-                isActive: settingsStore.chatTone != .balanced
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-    }
-
-    private var llmSelector: some View {
-        LLMSelectorMenu(viewModel: viewModel, settingsStore: settingsStore, style: .inline)
-    }
-
     private var modeSelector: some View {
         HStack(spacing: 6) {
-            modeButton(.chat, isDisabled: false)
-            modeButton(.image, isDisabled: !viewModel.canUseImageGeneration)
+            if viewModel.composerMode == .image {
+                modeButton(.chat, isDisabled: false)
+            } else {
+                modeButton(.image, isDisabled: !viewModel.canUseImageGeneration)
+            }
+        }
+    }
+
+    private var trailingPrimaryButton: some View {
+        Group {
+            if canSend || isSending {
+                Button(action: handlePrimaryAction) {
+                    ComposerCircleButton(
+                        icon: isSending ? "stop.fill" : "arrow.up",
+                        isProminent: true,
+                        iconForegroundColor: .white
+                    )
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    startDictation()
+                } label: {
+                    ComposerCircleButton(icon: "mic.fill")
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -390,7 +356,7 @@ struct ComposerView: View {
 
 }
 
-private struct TokenContextBadge: View {
+struct TokenContextBadge: View {
     let usageFraction: Double
     let inputTokenCount: Int
     let outputTokenCount: Int
@@ -555,11 +521,14 @@ struct ComposerChipButton: View {
             if let label {
                 Text(label)
                     .font(AppTheme.uiFont(12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .foregroundStyle(isActive ? AppTheme.accent : AppTheme.textSecondary)
         .padding(.horizontal, 12)
         .frame(height: 34)
+        .fixedSize(horizontal: true, vertical: false)
         .background(
             isActive
                 ? AppTheme.accent.opacity(0.10)
@@ -602,22 +571,11 @@ struct InlineLLMSelectorButton: View {
     let modelIdentifier: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "cpu")
-                .font(AppTheme.uiFont(12, weight: .semibold))
-            Text(provider.selectorTitle)
-                .font(AppTheme.uiFont(12, weight: .semibold))
-                .lineLimit(1)
-
-            Image(systemName: "chevron.down")
-                .font(AppTheme.uiFont(10, weight: .semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-        }
-        .foregroundStyle(AppTheme.textPrimary)
-        .padding(.horizontal, 12)
-        .frame(height: 34)
-        .background(AppTheme.surfaceSecondary)
-        .clipShape(Capsule())
+        ToolbarChipLabel(
+            title: provider.selectorTitle,
+            systemName: "sparkles",
+            trailingSystemName: "chevron.down"
+        )
         .help("Current model: \(provider.normalizedModelIdentifier(modelIdentifier))")
     }
 }

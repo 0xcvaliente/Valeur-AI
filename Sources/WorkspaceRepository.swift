@@ -401,7 +401,11 @@ final class WorkspaceRepository {
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
         descriptor.relationshipKeyPathsForPrefetching = [\.blocks]
-        return try context.fetch(descriptor)
+        let workspaces = try context.fetch(descriptor)
+        if try migrateLegacySecrets(in: workspaces) {
+            try context.save()
+        }
+        return workspaces
     }
 
     func createWorkspace(
@@ -618,6 +622,56 @@ final class WorkspaceRepository {
 
     private func touch(_ workspace: WorkspaceRecord) {
         workspace.updatedAt = .now
+    }
+
+    private func migrateLegacySecrets(in workspaces: [WorkspaceRecord]) throws -> Bool {
+        var didChange = false
+
+        for workspace in workspaces {
+            if !workspace.title.isEmpty,
+               !MessageEncryption.shared.isEncryptedString(workspace.title) {
+                workspace.title = try MessageEncryption.shared.encryptString(workspace.title)
+                didChange = true
+            }
+
+            for block in workspace.blocks {
+                if !block.content.isEmpty,
+                   !MessageEncryption.shared.isEncryptedString(block.content) {
+                    block.content = try MessageEncryption.shared.encryptString(block.content)
+                    didChange = true
+                }
+
+                if let attachmentsData = block.attachmentsData,
+                   !attachmentsData.isEmpty,
+                   !MessageEncryption.shared.isEncryptedData(attachmentsData) {
+                    block.attachmentsData = try MessageEncryption.shared.encryptData(attachmentsData)
+                    didChange = true
+                }
+
+                for revision in block.revisions {
+                    if !revision.instruction.isEmpty,
+                       !MessageEncryption.shared.isEncryptedString(revision.instruction) {
+                        revision.instruction = try MessageEncryption.shared.encryptString(revision.instruction)
+                        didChange = true
+                    }
+
+                    if !revision.content.isEmpty,
+                       !MessageEncryption.shared.isEncryptedString(revision.content) {
+                        revision.content = try MessageEncryption.shared.encryptString(revision.content)
+                        didChange = true
+                    }
+
+                    if let attachmentsData = revision.attachmentsData,
+                       !attachmentsData.isEmpty,
+                       !MessageEncryption.shared.isEncryptedData(attachmentsData) {
+                        revision.attachmentsData = try MessageEncryption.shared.encryptData(attachmentsData)
+                        didChange = true
+                    }
+                }
+            }
+        }
+
+        return didChange
     }
 }
 
@@ -1022,14 +1076,18 @@ final class WorkspaceViewModel: ObservableObject {
     }
 
     private func readText(from url: URL) async throws -> String {
-        if let text = try await SecureFileAccess.text(from: url, encodings: [.utf8, .unicode, .utf16]) {
+        if let text = try await SecureFileAccess.text(
+            from: url,
+            encodings: [.utf8, .unicode, .utf16],
+            maxBytes: SecureFileAccess.maximumImportBytes
+        ) {
             return text
         }
         throw WorkspaceImportError.invalidTextFile
     }
 
     private func readData(from url: URL) async throws -> Data {
-        try await SecureFileAccess.data(from: url)
+        try await SecureFileAccess.data(from: url, maxBytes: SecureFileAccess.maximumImportBytes)
     }
 
     private func save(_ exportedFile: ExportedFile) throws {

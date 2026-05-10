@@ -20,6 +20,8 @@ enum ConversationExportError: LocalizedError {
     case noVisual
     case noVisualBlock
     case invalidImageData
+    case remoteImageNeedsImport
+    case exportRenderTimedOut
     case failedToEncodeHTML
     case failedToRenderDOCX
     case failedToRenderPDF
@@ -45,6 +47,10 @@ enum ConversationExportError: LocalizedError {
             return "This workspace block doesn't contain an exportable image or chart."
         case .invalidImageData:
             return "The latest image could not be prepared for export."
+        case .remoteImageNeedsImport:
+            return "Import the remote image into the app before exporting it as PNG."
+        case .exportRenderTimedOut:
+            return "The export timed out while rendering the document."
         case .failedToEncodeHTML:
             return "The conversation could not be encoded as HTML."
         case .failedToRenderDOCX:
@@ -124,7 +130,7 @@ enum WorkspaceExportService {
     }
 
     static func exportVisualBlockPNG(_ block: WorkspaceBlockRecord) async throws -> ExportedFile {
-        guard let visual = workspaceVisual(for: block) else {
+        guard let visual = pngRenderableWorkspaceVisual(for: block) else {
             throw ConversationExportError.noVisualBlock
         }
 
@@ -132,12 +138,6 @@ enum WorkspaceExportService {
         switch visual {
         case .localImage(let imageData):
             data = try ConversationExportService.pngData(from: imageData)
-        case .remoteImage(let remoteImage):
-            let (downloadedData, response) = try await URLSession.shared.data(from: remoteImage.url)
-            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-                throw ConversationExportError.invalidImageData
-            }
-            data = try ConversationExportService.pngData(from: downloadedData)
         case .chart(let chart):
             data = try ConversationExportService.pngData(for: chart)
         }
@@ -160,7 +160,7 @@ enum WorkspaceExportService {
     }
 
     static func canExportPNG(_ block: WorkspaceBlockRecord) -> Bool {
-        workspaceVisual(for: block) != nil
+        pngRenderableWorkspaceVisual(for: block) != nil
     }
 
     private static func ensureWorkspaceHasBlocks(_ workspace: WorkspaceRecord) throws {
@@ -404,7 +404,9 @@ enum WorkspaceExportService {
         if let remoteURL = payload.remoteURL {
             return """
             <figure>
-                <img src=\"\(ConversationExportService.escapeHTML(remoteURL.absoluteString))\" alt=\"\(ConversationExportService.escapeHTML(caption.isEmpty ? "Image" : caption))\">
+                <div class=\"attachment-card\">
+                    <a href=\"\(ConversationExportService.escapeHTML(remoteURL.absoluteString))\">Remote image source</a>
+                </div>
                 \(figcaption)
             </figure>
             """
@@ -433,9 +435,31 @@ enum WorkspaceExportService {
         return nil
     }
 
+    private static func pngRenderableWorkspaceVisual(for block: WorkspaceBlockRecord) -> WorkspacePNGVisual? {
+        switch block.kind {
+        case .chart:
+            if let chart = block.workspaceChartForExport {
+                return .chart(chart)
+            }
+        case .image:
+            if let localImageData = block.decryptedAttachmentsData {
+                return .localImage(localImageData)
+            }
+        case .text, .table:
+            return nil
+        }
+
+        return nil
+    }
+
     private enum WorkspaceVisual {
         case localImage(Data)
         case remoteImage(MarkdownRemoteImage)
+        case chart(MarkdownChartSpec)
+    }
+
+    private enum WorkspacePNGVisual {
+        case localImage(Data)
         case chart(MarkdownChartSpec)
     }
 }
@@ -508,7 +532,7 @@ enum ConversationExportService {
 
     static func exportLatestVisualPNG(_ conversation: ConversationRecord) async throws -> ExportedFile {
         try ensureConversationHasMessages(conversation)
-        guard let visual = latestVisual(in: conversation) else {
+        guard let visual = latestPNGVisual(in: conversation) else {
             throw ConversationExportError.noVisual
         }
 
@@ -516,12 +540,6 @@ enum ConversationExportService {
         switch visual {
         case .attachment(let attachment):
             data = try pngData(from: attachment.data)
-        case .remoteImage(let remoteImage):
-            let (downloadedData, response) = try await URLSession.shared.data(from: remoteImage.url)
-            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-                throw ConversationExportError.invalidImageData
-            }
-            data = try pngData(from: downloadedData)
         case .chart(let spec):
             data = try pngData(for: spec)
         }
@@ -540,7 +558,7 @@ enum ConversationExportService {
 
     static func hasVisual(in conversation: ConversationRecord?) -> Bool {
         guard let conversation else { return false }
-        return latestVisual(in: conversation) != nil
+        return latestPNGVisual(in: conversation) != nil
     }
 
     static func safeFilenameStem(for title: String) -> String {
@@ -629,6 +647,27 @@ enum ConversationExportService {
                         }
                     }
                 case .code:
+                    continue
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func latestPNGVisual(in conversation: ConversationRecord) -> PNGVisual? {
+        for message in sortedMessages(in: conversation).reversed() {
+            if let attachments = decodedAttachments(for: message) {
+                for attachment in attachments.reversed() where attachment.mimeType.hasPrefix("image/") {
+                    return .attachment(attachment)
+                }
+            }
+
+            for markdownBlock in MarkdownBlock.parse(message.decryptedContent).reversed() {
+                switch markdownBlock.kind {
+                case .chart(let spec):
+                    return .chart(spec)
+                case .markdown, .code:
                     continue
                 }
             }
@@ -961,7 +1000,9 @@ enum ConversationExportService {
             let figcaption = caption.isEmpty ? "" : "<figcaption>\(escapeHTML(caption))</figcaption>"
             return """
             <figure>
-                <img src=\"\(escapeHTML(remoteImage.url.absoluteString))\" alt=\"\(escapeHTML(caption.isEmpty ? "Remote image" : caption))\">
+                <div class=\"attachment-card\">
+                    <a href=\"\(escapeHTML(remoteImage.url.absoluteString))\">Remote image source</a>
+                </div>
                 \(figcaption)
             </figure>
             """
@@ -1105,8 +1146,19 @@ enum ConversationExportService {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 960, height: 1400))
         let delegate = ExportWebViewNavigationDelegate()
         webView.navigationDelegate = delegate
-        webView.loadHTMLString(html, baseURL: nil)
-        try await delegate.waitForCompletion()
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await delegate.waitForCompletion()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+                throw ConversationExportError.exportRenderTimedOut
+            }
+            webView.loadHTMLString(html, baseURL: nil)
+            _ = try await group.next()
+            group.cancelAll()
+        }
 
         return try await withCheckedThrowingContinuation { continuation in
             let configuration = WKPDFConfiguration()
@@ -1126,28 +1178,53 @@ enum ConversationExportService {
         case remoteImage(MarkdownRemoteImage)
         case chart(MarkdownChartSpec)
     }
+
+    private enum PNGVisual {
+        case attachment(MessageAttachment)
+        case chart(MarkdownChartSpec)
+    }
 }
 
 private final class ExportWebViewNavigationDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
+    private var storedCompletionError: Error?
+    private var didFinishLoading = false
 
     func waitForCompletion() async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        if let storedCompletionError {
+            throw storedCompletionError
+        }
+        if didFinishLoading {
+            return
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            if let storedCompletionError {
+                continuation.resume(throwing: storedCompletionError)
+                return
+            }
+            if didFinishLoading {
+                continuation.resume(returning: ())
+                return
+            }
             self.continuation = continuation
         }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        didFinishLoading = true
         continuation?.resume(returning: ())
         continuation = nil
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        storedCompletionError = error
         continuation?.resume(throwing: error)
         continuation = nil
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        storedCompletionError = error
         continuation?.resume(throwing: error)
         continuation = nil
     }

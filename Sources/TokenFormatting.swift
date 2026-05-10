@@ -16,6 +16,13 @@ enum TokenFormatting {
         return max(Int(ceil(estimated)), 1)
     }
 
+    static func estimatedAttachmentTokenCount(forByteCount byteCount: Int) -> Int {
+        guard byteCount > 0 else { return 0 }
+
+        let encodedCharacterCount = ((byteCount + 2) / 3) * 4
+        return max(Int(ceil(Double(encodedCharacterCount) / 4.0)), 1)
+    }
+
     private static let compactFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal

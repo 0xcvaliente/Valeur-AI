@@ -23,64 +23,90 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var viewModel: ChatViewModel
+    var onDone: (() -> Void)? = nil
     @EnvironmentObject private var settingsStore: SettingsStore
     @Environment(\.dismiss) private var dismiss
     @State private var selectedCategory: SettingsCategory? = UITestLaunchConfiguration.settingsCategory ?? .defaults
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(SettingsCategory.allCases) { category in
-                        Button {
-                            selectedCategory = category
-                        } label: {
-                            SettingsCategoryRow(
-                                title: category.rawValue,
-                                systemImage: category.icon,
-                                isSelected: selectedCategory == category
-                            )
+        ZStack(alignment: .topTrailing) {
+            HStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(SettingsCategory.allCases) { category in
+                            Button {
+                                selectedCategory = category
+                            } label: {
+                                SettingsCategoryRow(
+                                    title: category.rawValue,
+                                    systemImage: category.icon,
+                                    isSelected: selectedCategory == category
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("settings.category.\(category.rawValue.lowercased())")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("settings.category.\(category.rawValue.lowercased())")
+                    }
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 10)
+                }
+                .frame(minWidth: 180, idealWidth: 200, maxWidth: 220)
+
+                Group {
+                    switch selectedCategory {
+                    case .defaults:
+                        SettingsDefaultsPanel(viewModel: viewModel)
+                    case .appearance:
+                        SettingsAppearancePanel()
+                    case .personalization:
+                        SettingsPersonalizationPanel()
+                    case .apiKeys:
+                        SettingsAPIKeysPanel(viewModel: viewModel)
+                    case .data:
+                        SettingsDataPanel()
+                    case nil:
+                        EmptyView()
                     }
                 }
-                .padding(.vertical, 12)
-                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .frame(minWidth: 180, idealWidth: 200, maxWidth: 220)
+            .padding(.top, AppTheme.titlebarBackdropHeight)
 
-            Divider()
-
-            Group {
-                switch selectedCategory {
-                case .defaults:
-                    SettingsDefaultsPanel(viewModel: viewModel)
-                case .appearance:
-                    SettingsAppearancePanel()
-                case .personalization:
-                    SettingsPersonalizationPanel()
-                case .apiKeys:
-                    SettingsAPIKeysPanel(viewModel: viewModel)
-                case .data:
-                    SettingsDataPanel()
-                case nil:
-                    EmptyView()
+            Button("Done") {
+                if let onDone {
+                    onDone()
+                } else {
+                    dismiss()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .buttonStyle(SettingsDoneButtonStyle())
+            .padding(.top, 14)
+            .padding(.trailing, AppTheme.titlebarContentInset)
+            .accessibilityIdentifier("settings.doneButton")
         }
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }
-                    .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
-                    .accessibilityIdentifier("settings.doneButton")
-            }
-        }
+        .frame(minWidth: 1200, minHeight: 760)
         .preferredColorScheme(settingsStore.appAppearance.colorScheme)
         .tint(AppTheme.accent)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("settings.root")
+    }
+}
+
+private struct SettingsDoneButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(AppTheme.uiFont(13, weight: .semibold))
+            .foregroundStyle(AppTheme.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(AppTheme.surfaceSecondary.opacity(configuration.isPressed ? 0.9 : 0.72))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(AppTheme.border.opacity(configuration.isPressed ? 0.55 : 0.35), lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -97,6 +123,8 @@ private struct SettingsCategoryRow: View {
 
             Text(title)
                 .font(AppTheme.uiFont(14, weight: .medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             Spacer(minLength: 0)
         }
@@ -185,6 +213,7 @@ private struct SettingsDefaultsPanel: View {
                         Text("Allow Provider Web Search")
                             .font(AppTheme.uiFont(13, weight: .medium))
                             .foregroundStyle(AppTheme.textPrimary)
+                            .lineLimit(1)
                         Text("Off by default. When enabled, OpenAI, Gemini, and OpenRouter may call provider-side search tools for the current request.")
                             .font(AppTheme.uiFont(11, weight: .medium))
                             .foregroundStyle(AppTheme.textSecondary)
@@ -208,6 +237,13 @@ private struct SettingsDefaultsPanel: View {
                 Text("Choose a provider here, then set the model used for that provider. The sidebar selector switches provider for the current chat, and that chat uses the model configured here.")
                     .font(AppTheme.uiFont(11, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+
+                SettingsFieldLabel("App Info")
+                SettingsInfoCard(rows: [
+                    ("App Version", appVersionLabel),
+                    ("Build Version", buildVersionLabel),
+                    ("macOS Version", macOSVersionLabel)
+                ])
             }
         }
         .onAppear {
@@ -253,6 +289,8 @@ private struct SettingsDefaultsPanel: View {
                 Text(customModelTestMessage)
                     .font(AppTheme.uiFont(11, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
         }
     }
@@ -306,6 +344,19 @@ private struct SettingsDefaultsPanel: View {
                 }
             }
         }
+    }
+
+    private var appVersionLabel: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+    }
+
+    private var buildVersionLabel: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
+    }
+
+    private var macOSVersionLabel: String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "macOS \(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
     }
 }
 
@@ -423,6 +474,8 @@ private struct SettingsPersonalizationPanel: View {
                         Text(summary)
                             .font(AppTheme.uiFont(11, weight: .semibold))
                             .foregroundStyle(AppTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         Text("This document is injected as persistent reference memory when it is relevant to the conversation.")
                             .font(AppTheme.uiFont(11, weight: .medium))
                             .foregroundStyle(AppTheme.textSecondary)
@@ -492,6 +545,7 @@ private struct SettingsAPIKeysPanel: View {
                             Text("Active chat usage")
                                 .font(AppTheme.uiFont(13, weight: .semibold))
                                 .foregroundStyle(AppTheme.textPrimary)
+                                .lineLimit(1)
 
                             Text("This shows input, output, and total tokens used by the active chat.")
                                 .font(AppTheme.uiFont(11, weight: .medium))
@@ -508,6 +562,7 @@ private struct SettingsAPIKeysPanel: View {
                             Text("Context Window")
                                 .font(AppTheme.uiFont(11, weight: .semibold))
                                 .foregroundStyle(AppTheme.textPrimary)
+                                .lineLimit(1)
                             Text("Configured limit for new and active chats.")
                                 .font(AppTheme.uiFont(10, weight: .medium))
                                 .foregroundStyle(AppTheme.textSecondary)
@@ -519,9 +574,11 @@ private struct SettingsAPIKeysPanel: View {
                             Text(TokenFormatting.windowLabel(viewModel.contextTokenLimit))
                                 .font(AppTheme.monoFont(12, weight: .semibold))
                                 .foregroundStyle(AppTheme.textPrimary)
+                                .lineLimit(1)
                             Text("Token budget")
                                 .font(AppTheme.monoFont(9, weight: .medium))
                                 .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(1)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -534,6 +591,7 @@ private struct SettingsAPIKeysPanel: View {
                         Text("Saved across chats")
                             .font(AppTheme.uiFont(11, weight: .semibold))
                             .foregroundStyle(AppTheme.textPrimary)
+                            .lineLimit(1)
                             Text("Keeps adding as you make new chats.")
                                 .font(AppTheme.uiFont(10, weight: .medium))
                                 .foregroundStyle(AppTheme.textSecondary)
@@ -545,12 +603,15 @@ private struct SettingsAPIKeysPanel: View {
                             Text(TokenFormatting.windowLabel(viewModel.savedTotalTokenCountAcrossChats))
                                 .font(AppTheme.monoFont(12, weight: .semibold))
                                 .foregroundStyle(AppTheme.textPrimary)
+                                .lineLimit(1)
                             Text("Input \(TokenFormatting.windowLabel(viewModel.savedInputTokenCountAcrossChats))")
                                 .font(AppTheme.monoFont(9, weight: .medium))
                                 .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(1)
                             Text("Output \(TokenFormatting.windowLabel(viewModel.savedOutputTokenCountAcrossChats))")
                                 .font(AppTheme.monoFont(9, weight: .medium))
                                 .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(1)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -589,6 +650,8 @@ private struct SettingsAPIKeysPanel: View {
                                 Text(message)
                                     .font(AppTheme.uiFont(11, weight: .medium))
                                     .foregroundStyle(AppTheme.textSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
                         }
                     }
@@ -658,7 +721,9 @@ private struct SettingsDataPanel: View {
                         NotificationCenter.default.post(name: .deleteAllConversationsRequested, object: nil)
                         saveMessage = "All conversations deleted."
                     }
+                    .accessibilityIdentifier("settings.confirmDeleteAll")
                     Button("Cancel", role: .cancel) {}
+                        .accessibilityIdentifier("settings.cancelDeleteAll")
                 } message: {
                     Text("This will permanently delete every conversation and all messages. You cannot undo this action.")
                 }
@@ -702,6 +767,8 @@ private struct SettingsFieldLabel: View {
         Text(text)
             .font(AppTheme.uiFont(11, weight: .semibold))
             .foregroundStyle(AppTheme.textSecondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 }
 
@@ -733,6 +800,40 @@ private struct SettingsContextWindowCard: View {
     }
 }
 
+private struct SettingsInfoCard: View {
+    let rows: [(label: String, value: String)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                HStack(alignment: .firstTextBaseline, spacing: 16) {
+                    Text(row.label)
+                        .font(AppTheme.uiFont(12, weight: .semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Text(row.value)
+                        .font(AppTheme.monoFont(12, weight: .semibold))
+                        .foregroundStyle(AppTheme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.trailing)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 10)
+
+                if index < rows.count - 1 {
+                    Divider()
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .background(AppTheme.surfaceSecondary)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous))
+    }
+}
+
 private struct SettingsInputStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -756,12 +857,18 @@ private struct SettingsModelPickerButton: View {
                 Text(provider.normalizedModelIdentifier(modelIdentifier))
                     .font(AppTheme.uiFont(14, weight: .medium))
                     .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text("Version \(provider.versionLabel(for: modelIdentifier))")
                     .font(AppTheme.uiFont(11, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text("Context \(TokenFormatting.windowLabel(provider.contextWindowTokens(for: modelIdentifier)))")
                     .font(AppTheme.uiFont(11, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 0)

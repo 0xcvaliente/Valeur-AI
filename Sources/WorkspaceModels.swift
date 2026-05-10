@@ -66,11 +66,7 @@ struct WorkspaceImagePayload: Codable, Equatable, Sendable {
     var remoteURLString: String?
 
     var remoteURL: URL? {
-        guard let remoteURLString,
-              let url = URL(string: remoteURLString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return nil
-        }
-        return url
+        RemoteImageSupport.normalizedHTTPURL(from: remoteURLString)
     }
 }
 

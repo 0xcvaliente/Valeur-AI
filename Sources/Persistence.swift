@@ -198,16 +198,22 @@ final class ConversationRepository {
 
     private func inputTokenCount(for conversation: ConversationRecord) -> Int {
         let sortedMessages = conversation.messages.sorted(by: { $0.createdAt < $1.createdAt })
-        let nonAssistantText = sortedMessages
-            .filter { $0.role != .assistant }
+        let nonAssistantMessages = sortedMessages.filter { $0.role != .assistant }
+        let nonAssistantText = nonAssistantMessages
             .map(\.decryptedContent)
             .joined(separator: "\n")
         let systemPromptText = conversation.resolvedSystemPrompt ?? ""
-        return TokenFormatting.estimatedTokenCount(
+        let textTokenCount = TokenFormatting.estimatedTokenCount(
             for: [nonAssistantText, systemPromptText]
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
         )
+        let attachmentTokenCount = nonAssistantMessages.reduce(into: 0) { total, message in
+            total += decodedAttachments(for: message).reduce(into: 0) { attachmentTotal, attachment in
+                attachmentTotal += TokenFormatting.estimatedAttachmentTokenCount(forByteCount: attachment.data.count)
+            }
+        }
+        return textTokenCount + attachmentTokenCount
     }
 
     private func outputTokenCount(for conversation: ConversationRecord) -> Int {
@@ -216,5 +222,13 @@ final class ConversationRepository {
             .map(\.decryptedContent)
             .joined(separator: "\n")
         return TokenFormatting.estimatedTokenCount(for: assistantText)
+    }
+
+    private func decodedAttachments(for message: MessageRecord) -> [MessageAttachment] {
+        guard let data = message.decryptedAttachmentsData,
+              let attachments = try? JSONDecoder().decode([MessageAttachment].self, from: data) else {
+            return []
+        }
+        return attachments
     }
 }

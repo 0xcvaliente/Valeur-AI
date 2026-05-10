@@ -308,6 +308,22 @@ struct WorkspaceExportServiceTests {
         #expect(exported.suggestedFilename == "planning-board-table.csv")
         #expect(csv == "Item,Owner\nRoadmap,Cliff")
     }
+
+    @Test func remoteImageBlockRequiresLocalImportForPNGExport() throws {
+        let workspace = WorkspaceRecord(storedTitle: try MessageEncryption.shared.encryptString("Visual Board"))
+        let imageBlock = WorkspaceBlockRecord(
+            kind: .image,
+            sortOrder: 0,
+            storedContent: try MessageEncryption.shared.encryptString(
+                WorkspaceSeedFactory.encodedImagePayload(
+                    WorkspaceImagePayload(caption: "Diagram", remoteURLString: "https://example.com/diagram.png")
+                )
+            ),
+            workspace: workspace
+        )
+
+        #expect(WorkspaceExportService.canExportPNG(imageBlock) == false)
+    }
 }
 
 struct SpreadsheetSupportTests {
@@ -403,6 +419,18 @@ struct ConversationExportServiceTests {
 
         #expect(table.headers == ["Series", "Month", "Revenue"])
         #expect(table.rows == [["North", "Jan", "12"], ["South", "Feb", "18"]])
+    }
+
+    @Test func remoteMarkdownImageDoesNotCountAsPNGExportableVisual() throws {
+        let conversation = ConversationRecord(storedTitle: try MessageEncryption.shared.encryptString("Images"))
+        let message = MessageRecord(
+            role: .assistant,
+            storedContent: try MessageEncryption.shared.encryptString("![Chart](https://example.com/chart.png)"),
+            conversation: conversation
+        )
+        conversation.messages = [message]
+
+        #expect(ConversationExportService.hasVisual(in: conversation) == false)
     }
 }
 
@@ -767,6 +795,59 @@ struct ConversationRepositoryIntegrationTests {
             WorkspaceBlockRevisionRecord.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
+    }
+}
+
+@MainActor
+struct WorkspaceRepositoryIntegrationTests {
+
+    @Test func fetchWorkspacesMigratesLegacyPlaintextFields() throws {
+        let container = try ModelContainer(
+            for: ConversationRecord.self,
+            MessageRecord.self,
+            WorkspaceRecord.self,
+            WorkspaceBlockRecord.self,
+            WorkspaceBlockRevisionRecord.self,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+        let workspace = WorkspaceRecord(storedTitle: "Legacy Workspace")
+        let block = WorkspaceBlockRecord(
+            kind: .text,
+            sortOrder: 0,
+            storedContent: "Legacy block body",
+            attachmentsData: Data("legacy attachment".utf8),
+            workspace: workspace
+        )
+        let revision = WorkspaceBlockRevisionRecord(
+            storedInstruction: "Legacy instruction",
+            storedContent: "Legacy revision body",
+            attachmentsData: Data("legacy revision attachment".utf8),
+            block: block
+        )
+        block.revisions = [revision]
+        workspace.blocks = [block]
+        context.insert(workspace)
+        context.insert(block)
+        context.insert(revision)
+        try context.save()
+
+        let repository = WorkspaceRepository(context: context)
+        let workspaces = try repository.fetchWorkspaces()
+
+        #expect(workspaces.count == 1)
+        #expect(workspaces[0].decryptedTitle == "Legacy Workspace")
+        #expect(workspaces[0].blocks[0].decryptedContent == "Legacy block body")
+        #expect(workspaces[0].blocks[0].decryptedAttachmentsData == Data("legacy attachment".utf8))
+        #expect(workspaces[0].blocks[0].revisions[0].decryptedInstruction == "Legacy instruction")
+        #expect(workspaces[0].blocks[0].revisions[0].decryptedContent == "Legacy revision body")
+        #expect(workspaces[0].blocks[0].revisions[0].decryptedAttachmentsData == Data("legacy revision attachment".utf8))
+        #expect(MessageEncryption.shared.isEncryptedString(workspaces[0].title))
+        #expect(MessageEncryption.shared.isEncryptedString(workspaces[0].blocks[0].content))
+        #expect(MessageEncryption.shared.isEncryptedData(workspaces[0].blocks[0].attachmentsData ?? Data()))
+        #expect(MessageEncryption.shared.isEncryptedString(workspaces[0].blocks[0].revisions[0].instruction))
+        #expect(MessageEncryption.shared.isEncryptedString(workspaces[0].blocks[0].revisions[0].content))
+        #expect(MessageEncryption.shared.isEncryptedData(workspaces[0].blocks[0].revisions[0].attachmentsData ?? Data()))
     }
 }
 

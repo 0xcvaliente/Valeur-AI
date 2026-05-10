@@ -73,11 +73,10 @@ struct SidebarView: View {
                     }
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 16)
-                .padding(.bottom, 12)
+                .padding(.vertical, 16)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 16)
 
             VStack(alignment: .leading, spacing: 12) {
                 Button(action: onSettingsTapped) {
@@ -90,10 +89,11 @@ struct SidebarView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 18)
-            .padding(.bottom, 18)
+            .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AppTheme.sidebarGrey)
+        .padding(10)
+        .background(SidebarFloatingPanelBackground())
         .onHover { onHoverChanged($0) }
         .toolbar(removing: .sidebarToggle)
         .alert("Rename Chat", isPresented: Binding(
@@ -158,6 +158,12 @@ struct SidebarView: View {
         }
         .map { ConversationGroup(title: $0.key, items: $0.value) }
         .sorted(by: { $0.sortRank < $1.sortRank })
+    }
+}
+
+struct SidebarFloatingPanelBackground: View {
+    var body: some View {
+        AppTheme.backgroundPrimary
     }
 }
 
@@ -238,8 +244,8 @@ struct ValeurLogoMark: View {
 
     var body: some View {
         Group {
-            if let brandMark = BrandAssetCatalog.brandMark {
-                Image(nsImage: brandMark)
+            if let appIcon = BrandAssetCatalog.appIcon {
+                Image(nsImage: appIcon)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
@@ -260,19 +266,11 @@ struct ValeurLogoMark: View {
 }
 
 private enum BrandAssetCatalog {
-    private final class BundleMarker {}
-
-    static var brandMark: NSImage? {
-        let resourceName = NSImage.Name("BrandMark")
-        let bundles = [Bundle.main, Bundle(for: BundleMarker.self)]
-
-        for bundle in bundles {
-            if let image = bundle.image(forResource: resourceName) {
-                return image
-            }
+    static var appIcon: NSImage? {
+        if let icon = NSImage(named: NSImage.applicationIconName) {
+            return icon
         }
-
-        return nil
+        return NSApplication.shared.applicationIconImage
     }
 }
 
@@ -309,7 +307,7 @@ private struct SidebarSectionLabel: View {
 private struct SidebarCardBackground: View {
     var body: some View {
         RoundedRectangle(cornerRadius: AppTheme.radius, style: .continuous)
-            .fill(AppTheme.surfacePrimary)
+            .fill(AppTheme.surfaceSecondary)
     }
 }
 

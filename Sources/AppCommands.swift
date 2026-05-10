@@ -1,8 +1,16 @@
 import SwiftUI
+import AppKit
 
 struct AppCommands: Commands {
     var body: some Commands {
         TextEditingCommands()
+        SidebarCommands()
+
+        CommandGroup(replacing: .appInfo) {
+            Button("About Valeur AI") {
+                AppCommands.showAboutPanel()
+            }
+        }
 
         CommandGroup(after: .newItem) {
             Button("New Chat") {
@@ -50,6 +58,30 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut(",")
         }
+    }
+}
+
+extension AppCommands {
+    static func showAboutPanel() {
+        let description = "Valeur AI is a private, encrypted AI workspace for chat, documents, and exports. Local-first storage keeps your data on-device, with API keys secured in the macOS Keychain.\n\n© \(Calendar.current.component(.year, from: Date())) Valeur AI. All Rights Reserved."
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineSpacing = 2
+
+        let credits = NSAttributedString(
+            string: description,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph
+            ]
+        )
+
+        NSApplication.shared.orderFrontStandardAboutPanel(options: [
+            .credits: credits
+        ])
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
 

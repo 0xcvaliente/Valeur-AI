@@ -10,13 +10,13 @@ enum UITestLaunchConfiguration {
     private static let environment = ProcessInfo.processInfo.environment
 
     static var isEnabled: Bool {
-        arguments.contains("--ui-testing") ||
-        environment["UI_TESTING"] == "1" ||
-        environment["XCTestConfigurationFilePath"] != nil ||
-        environment["XCTestBundlePath"] != nil
+        arguments.contains("--ui-testing") &&
+        (environment["XCTestConfigurationFilePath"] != nil ||
+         environment["XCTestBundlePath"] != nil)
     }
 
     static var acceptedTermsOverride: Bool? {
+        guard isEnabled else { return nil }
         if let value = environment["UI_TEST_ACCEPTED_TERMS"] {
             return value == "1"
         }
@@ -28,10 +28,22 @@ enum UITestLaunchConfiguration {
     }
 
     static var opensSettingsOnLaunch: Bool {
-        arguments.contains("--ui-testing-open-settings") || environment["UI_TEST_OPEN_SETTINGS"] == "1"
+        guard isEnabled else { return false }
+        return arguments.contains("--ui-testing-open-settings") || environment["UI_TEST_OPEN_SETTINGS"] == "1"
+    }
+
+    static var opensWorkspaceOnLaunch: Bool {
+        guard isEnabled else { return false }
+        return arguments.contains("--ui-testing-open-workspace") || environment["UI_TEST_OPEN_WORKSPACE"] == "1"
+    }
+
+    static var dumpsWorkspaceToolbarDebugInfo: Bool {
+        guard isEnabled else { return false }
+        return arguments.contains("--ui-testing-dump-workspace-toolbar") || environment["UI_TEST_DUMP_WORKSPACE_TOOLBAR"] == "1"
     }
 
     static var settingsCategory: SettingsCategory? {
+        guard isEnabled else { return nil }
         if let value = environment["UI_TEST_SETTINGS_CATEGORY"] {
             return SettingsCategory.allCases.first { $0.rawValue.caseInsensitiveCompare(value) == .orderedSame }
         }
@@ -43,6 +55,7 @@ enum UITestLaunchConfiguration {
     }
 
     static var screen: Screen? {
+        guard isEnabled else { return nil }
         if let value = environment["UI_TEST_SCREEN"] {
             return Screen(rawValue: value)
         }

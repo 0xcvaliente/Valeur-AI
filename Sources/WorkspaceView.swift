@@ -5,51 +5,191 @@ import UniformTypeIdentifiers
 
 struct WorkspaceView: View {
     @ObservedObject var viewModel: WorkspaceViewModel
+    @Binding var columnVisibility: NavigationSplitViewVisibility
+    var isSidebarPinned: Bool = true
+    var sidebarHoverStripWidth: CGFloat = 20
+    var onToggleSidebarPin: (() -> Void)? = nil
+    var onSidebarHoverChanged: ((Bool) -> Void)? = nil
+    var onSidebarStripHoverChanged: ((Bool) -> Void)? = nil
+    let onClose: (() -> Void)?
     @EnvironmentObject private var settingsStore: SettingsStore
     @Environment(\.dismiss) private var dismiss
+    @State private var isShowingDeleteWorkspaceAlert = false
 
     var body: some View {
-        NavigationSplitView {
-            workspaceSidebar
-        } detail: {
-            workspaceDetail
+        Group {
+            if #available(macOS 15.0, *) {
+                workspaceRoot
+                    .toolbar(removing: .title)
+            } else {
+                workspaceRoot
+            }
         }
-        .navigationSplitViewStyle(.balanced)
-        .preferredColorScheme(settingsStore.appAppearance.colorScheme)
-        .background(WindowAppearanceSynchronizer(colorScheme: settingsStore.appAppearance.colorScheme))
-        .background(AppTheme.backgroundPrimary.ignoresSafeArea())
+    }
+
+    private var workspaceRoot: some View {
+        ZStack(alignment: .top) {
+            workspaceLayout
+                .padding(.top, AppTheme.titlebarBackdropHeight)
+
+            workspaceTitlebarControls
+        }
+            .frame(minWidth: 1200, minHeight: 760)
+            .preferredColorScheme(settingsStore.appAppearance.colorScheme)
+            .background(WindowAppearanceSynchronizer(colorScheme: settingsStore.appAppearance.colorScheme))
+            .background(WindowToolbarStyleSynchronizer(style: .expanded))
+            .background(WindowToolbarChromeClearer())
+            .background(AppTheme.backgroundPrimary.ignoresSafeArea())
+            .overlay(alignment: .leading) {
+                if !isSidebarPinned {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(width: sidebarHoverStripWidth)
+                        .frame(maxHeight: .infinity)
+                        .onHover { onSidebarStripHoverChanged?($0) }
+                }
+            }
+            .alert("Delete Workspace?", isPresented: $isShowingDeleteWorkspaceAlert) {
+                Button("Delete", role: .destructive) {
+                    viewModel.deleteSelectedWorkspace()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This permanently deletes the selected workspace and all of its blocks.")
+            }
+    }
+
+    private var workspaceLayout: some View {
+        HStack(spacing: 0) {
+            if showsSidebar {
+                workspaceSidebar
+                    .frame(minWidth: 260, idealWidth: 280, maxWidth: 360)
+                    .padding(.leading, 12)
+                    .padding(.vertical, 12)
+            }
+
+            workspaceDetail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var workspaceTitlebarControls: some View {
+        TransparentTitlebarRow {
+            Button {
+                if let onClose {
+                    onClose()
+                } else {
+                    dismiss()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(AppTheme.uiFont(12, weight: .semibold))
+                    Text("Chat")
+                        .font(AppTheme.uiFont(13, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+            .help("Back to Chat")
+
+            Button {
+                onToggleSidebarPin?()
+            } label: {
+                ClusterIcon(systemName: isSidebarPinned ? "sidebar.leading" : "sidebar.left")
+            }
+            .buttonStyle(ToolbarTransparentCircleButtonStyle())
+            .help(isSidebarPinned ? "Hide Sidebar" : "Show Sidebar")
+
+            Button {
+                viewModel.createBlankWorkspace()
+            } label: {
+                ClusterIcon(systemName: "plus.rectangle.on.rectangle")
+            }
+            .buttonStyle(ToolbarTransparentCircleButtonStyle())
+            .help("New Workspace")
+
+            workspaceAddBlockMenu
+
+            Button(role: .destructive) {
+                isShowingDeleteWorkspaceAlert = true
+            } label: {
+                ClusterIcon(systemName: "trash")
+            }
+            .buttonStyle(ToolbarTransparentCircleButtonStyle())
+            .disabled(viewModel.selectedWorkspace == nil)
+            .help("Delete Workspace")
+
+            workspaceExportMenu
+        }
+    }
+
+    private var workspaceAddBlockMenu: some View {
+        Menu {
+            ForEach(WorkspaceBlockKind.allCases) { kind in
+                Button {
+                    viewModel.addBlock(kind)
+                } label: {
+                    Label(kind.title, systemImage: kind.icon)
+                }
+            }
+        } label: {
+            ClusterIcon(systemName: "plus")
+                .toolbarTransparentCircleChrome()
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .disabled(viewModel.selectedWorkspace == nil)
+        .help("Add Block")
+    }
+
+    private var workspaceExportMenu: some View {
+        Menu {
+            Button("Workspace as PDF") {
+                Task { await viewModel.exportSelectedWorkspacePDF() }
+            }
+            .disabled(!viewModel.canExportSelectedWorkspaceDocument)
+
+            Button("Workspace as DOCX") {
+                Task { await viewModel.exportSelectedWorkspaceDOCX() }
+            }
+            .disabled(!viewModel.canExportSelectedWorkspaceDocument)
+
+            Button("Workspace as HTML") {
+                Task { await viewModel.exportSelectedWorkspaceHTML() }
+            }
+            .disabled(!viewModel.canExportSelectedWorkspaceDocument)
+        } label: {
+            ClusterIcon(systemName: "square.and.arrow.up")
+                .toolbarTransparentCircleChrome()
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .disabled(viewModel.selectedWorkspace == nil)
+        .help("Export")
+        .tint(AppTheme.accent)
+    }
+
+    private var showsSidebar: Bool {
+        switch columnVisibility {
+        case .detailOnly:
+            return false
+        default:
+            return true
+        }
     }
 
     private var workspaceSidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Button {
-                    dismiss()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                            .font(AppTheme.uiFont(12, weight: .semibold))
-                        Text("Chat")
-                            .font(AppTheme.uiFont(13, weight: .medium))
-                    }
-                }
-                .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
-                .help("Back to Chat")
-
                 Text("Workspace")
                     .font(AppTheme.headingFont(20, weight: .semibold))
                     .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
-
-                Button {
-                    viewModel.createBlankWorkspace()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(AppTheme.uiFont(13, weight: .bold))
-                }
-                .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
-                .help("New Workspace")
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
@@ -58,18 +198,26 @@ struct WorkspaceView: View {
                 ForEach(viewModel.workspaces) { workspace in
                     WorkspaceSidebarRow(workspace: workspace)
                         .tag(workspace.id)
+                        .listRowBackground(Color.clear)
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(.clear)
         }
-        .background(AppTheme.sidebarGrey.opacity(0.94))
-        .navigationSplitViewColumnWidth(min: 260, ideal: 280, max: 360)
+        .padding(.bottom, 16)
+        .padding(10)
+        .background(SidebarFloatingPanelBackground())
+        .onHover { onSidebarHoverChanged?($0) }
     }
 
     @ViewBuilder
     private var workspaceDetail: some View {
         if let selectedWorkspace = viewModel.selectedWorkspace {
-            WorkspaceEditorView(viewModel: viewModel, workspace: selectedWorkspace)
+            WorkspaceEditorView(
+                viewModel: viewModel,
+                workspace: selectedWorkspace
+            )
         } else {
             VStack(spacing: 16) {
                 Image(systemName: "square.split.2x1")
@@ -117,11 +265,13 @@ private struct WorkspaceSidebarRow: View {
             Text(displayTitle)
                 .font(AppTheme.uiFont(13, weight: .semibold))
                 .foregroundStyle(AppTheme.textPrimary)
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
 
             Text(relativeTimestamp)
                 .font(AppTheme.uiFont(11, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(1)
         }
         .padding(.vertical, 4)
     }
@@ -139,24 +289,19 @@ private struct WorkspaceSidebarRow: View {
 private struct WorkspaceEditorView: View {
     @ObservedObject var viewModel: WorkspaceViewModel
     let workspace: WorkspaceRecord
-    @State private var isShowingDeleteWorkspaceAlert = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        ScrollView(showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                header
 
-            Divider()
-
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    ForEach(sortedBlocks) { block in
-                        WorkspaceBlockCardView(viewModel: viewModel, block: block)
-                    }
+                ForEach(sortedBlocks) { block in
+                    WorkspaceBlockCardView(viewModel: viewModel, block: block)
                 }
-                .padding(24)
             }
-            .background(AppTheme.backgroundPrimary)
+            .padding(24)
         }
+        .background(AppTheme.backgroundPrimary)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -165,7 +310,7 @@ private struct WorkspaceEditorView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) {
             TextField(
                 "Untitled Workspace",
                 text: Binding(
@@ -177,61 +322,14 @@ private struct WorkspaceEditorView: View {
             .font(AppTheme.headingFont(24, weight: .semibold))
             .foregroundStyle(AppTheme.textPrimary)
 
-            Spacer(minLength: 0)
-
-            Menu {
-                Button("Workspace as PDF") {
-                    Task { await viewModel.exportSelectedWorkspacePDF() }
-                }
-                .disabled(!viewModel.canExportSelectedWorkspaceDocument)
-
-                Button("Workspace as DOCX") {
-                    Task { await viewModel.exportSelectedWorkspaceDOCX() }
-                }
-                .disabled(!viewModel.canExportSelectedWorkspaceDocument)
-
-                Button("Workspace as HTML") {
-                    Task { await viewModel.exportSelectedWorkspaceHTML() }
-                }
-                .disabled(!viewModel.canExportSelectedWorkspaceDocument)
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up")
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
-
-            Menu {
-                ForEach(WorkspaceBlockKind.allCases) { kind in
-                    Button {
-                        viewModel.addBlock(kind)
-                    } label: {
-                        Label(kind.title, systemImage: kind.icon)
-                    }
-                }
-            } label: {
-                Label("Add Block", systemImage: "plus")
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(AppChromeButtonStyle(tone: .accent, compact: true))
-
-            Button(role: .destructive) {
-                isShowingDeleteWorkspaceAlert = true
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-            .buttonStyle(AppChromeButtonStyle(tone: .secondary, compact: true))
+            Text("Workspace")
+                .font(AppTheme.uiFont(12, weight: .semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+                .textCase(.uppercase)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 20)
-        .background(AppTheme.surfacePrimary)
-        .alert("Delete Workspace?", isPresented: $isShowingDeleteWorkspaceAlert) {
-            Button("Delete", role: .destructive) {
-                viewModel.deleteSelectedWorkspace()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently deletes the selected workspace and all of its blocks.")
-        }
+        .padding(.horizontal, 6)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
     }
 }
 
@@ -248,6 +346,7 @@ private struct WorkspaceBlockCardView: View {
                 Label(block.kind.title, systemImage: block.kind.icon)
                     .font(AppTheme.uiFont(13, weight: .semibold))
                     .foregroundStyle(AppTheme.accent)
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
 
@@ -1288,10 +1387,14 @@ private struct WorkspaceRevisionSheet: View {
                 Text("Revise \(block.kind.title) Block")
                     .font(AppTheme.headingFont(22, weight: .semibold))
                     .foregroundStyle(AppTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
 
                 Text("Using \(viewModel.revisionModelDisplayLabel)")
                     .font(AppTheme.uiFont(12, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -1334,6 +1437,8 @@ private struct WorkspaceRevisionSheet: View {
                 Text(applyMode.subtitle)
                     .font(AppTheme.uiFont(12, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             if viewModel.isRevising(block) {
@@ -1343,6 +1448,8 @@ private struct WorkspaceRevisionSheet: View {
                     Text(viewModel.revisionStatusMessage ?? "Revising...")
                         .font(AppTheme.uiFont(12, weight: .medium))
                         .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1416,6 +1523,8 @@ private struct WorkspaceRevisionHistorySheet: View {
                 Text("Restore an earlier version of this \(block.kind.title.lowercased()) block.")
                     .font(AppTheme.uiFont(13, weight: .medium))
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             if block.sortedRevisions.isEmpty {
@@ -1439,10 +1548,13 @@ private struct WorkspaceRevisionHistorySheet: View {
                                         Text(revisionTitle(revision))
                                             .font(AppTheme.uiFont(13, weight: .semibold))
                                             .foregroundStyle(AppTheme.textPrimary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
 
                                         Text(revision.createdAt.formatted(date: .abbreviated, time: .shortened))
                                             .font(AppTheme.uiFont(11, weight: .medium))
                                             .foregroundStyle(AppTheme.textSecondary)
+                                            .lineLimit(1)
                                     }
 
                                     Spacer(minLength: 0)

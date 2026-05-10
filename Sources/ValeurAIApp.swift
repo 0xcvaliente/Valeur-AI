@@ -91,10 +91,13 @@ struct ValeurAIApp: App {
     var body: some Scene {
         WindowGroup {
             rootContent
+                .frame(minWidth: 1320, minHeight: 760)
         }
         .commands {
             AppCommands()
         }
+        .defaultSize(width: 1280, height: 820)
+        .windowResizability(.contentMinSize)
     }
 
     private var rootContent: some View {
@@ -150,7 +153,6 @@ struct WindowAppearanceSynchronizer: NSViewRepresentable {
                 window.isOpaque = false
                 window.backgroundColor = .clear
                 window.titlebarSeparatorStyle = .none
-                stripToolbarBackground(in: window)
                 return
             }
 
@@ -159,29 +161,137 @@ struct WindowAppearanceSynchronizer: NSViewRepresentable {
             window.isOpaque = false
             window.backgroundColor = .clear
             window.titlebarSeparatorStyle = .none
-            stripToolbarBackground(in: window)
-        }
-
-        private func stripToolbarBackground(in window: NSWindow) {
-            guard let rootView = window.contentView?.superview else { return }
-            for view in rootView.subviews {
-                if NSStringFromClass(type(of: view)).contains("TitlebarContainer") {
-                    hideVisualEffectViews(in: view)
-                }
-            }
-        }
-
-        private func hideVisualEffectViews(in view: NSView) {
-            for sub in view.subviews {
-                if sub is NSVisualEffectView {
-                    sub.isHidden = true
-                }
-                hideVisualEffectViews(in: sub)
-            }
         }
 
         deinit {
             observers.forEach { NotificationCenter.default.removeObserver($0) }
+        }
+    }
+}
+
+struct WindowToolbarStyleSynchronizer: NSViewRepresentable {
+    let style: NSWindow.ToolbarStyle
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            nsView.window?.toolbarStyle = UITestLaunchConfiguration.isEnabled ? .unified : style
+        }
+    }
+}
+
+struct WindowToolbarChromeClearer: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard !UITestLaunchConfiguration.isEnabled else { return }
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+            clearToolbarChrome(in: window)
+            DispatchQueue.main.async {
+                clearToolbarChrome(in: window)
+            }
+        }
+    }
+
+    private func clearToolbarChrome(in window: NSWindow) {
+        window.titlebarSeparatorStyle = .none
+
+        guard let themeFrame = window.contentView?.superview else { return }
+        let standardButtons = Set([
+            window.standardWindowButton(.closeButton),
+            window.standardWindowButton(.miniaturizeButton),
+            window.standardWindowButton(.zoomButton)
+        ].compactMap { $0.map(ObjectIdentifier.init) })
+
+        clearToolbarChrome(in: themeFrame, standardButtons: standardButtons)
+    }
+
+    private func clearToolbarChrome(in view: NSView, standardButtons: Set<ObjectIdentifier>) {
+        if standardButtons.contains(ObjectIdentifier(view)) {
+            return
+        }
+
+        let className = NSStringFromClass(type(of: view))
+        let isToolbarChromeView = className.contains("Toolbar") ||
+            className.contains("Titlebar") ||
+            className.contains("VisualEffect")
+
+        if isToolbarChromeView {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+            view.layer?.borderColor = NSColor.clear.cgColor
+            view.layer?.borderWidth = 0
+            view.layer?.cornerRadius = 0
+            view.layer?.shadowOpacity = 0
+        }
+
+        if let effectView = view as? NSVisualEffectView, isToolbarChromeView {
+            effectView.material = .underWindowBackground
+            effectView.blendingMode = .behindWindow
+            effectView.state = .active
+            effectView.maskImage = nil
+        }
+
+        for subview in view.subviews {
+            clearToolbarChrome(in: subview, standardButtons: standardButtons)
+        }
+    }
+}
+
+struct ToolbarFlexibleSpaceSynchronizer: NSViewRepresentable {
+    let leadingItemCount: Int
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.attach(to: view, leadingItemCount: leadingItemCount)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.attach(to: nsView, leadingItemCount: leadingItemCount)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject {
+        private weak var observedToolbar: NSToolbar?
+        private var observation: NSKeyValueObservation?
+        private var leadingItemCount: Int = 0
+
+        func attach(to view: NSView, leadingItemCount: Int) {
+            self.leadingItemCount = leadingItemCount
+            DispatchQueue.main.async { [weak self, weak view] in
+                guard let self, let toolbar = view?.window?.toolbar else { return }
+                if self.observedToolbar !== toolbar {
+                    self.observedToolbar = toolbar
+                    self.observation?.invalidate()
+                    self.observation = toolbar.observe(\.items, options: [.initial, .new]) { [weak self] tb, _ in
+                        self?.injectFlexibleSpace(in: tb)
+                    }
+                }
+                self.injectFlexibleSpace(in: toolbar)
+            }
+        }
+
+        private func injectFlexibleSpace(in toolbar: NSToolbar) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let items = toolbar.items
+                guard !items.contains(where: { $0.itemIdentifier == .flexibleSpace }) else { return }
+                let insertIndex = min(self.leadingItemCount, items.count)
+                guard items.count > self.leadingItemCount else { return }
+                toolbar.insertItem(withItemIdentifier: .flexibleSpace, at: insertIndex)
+            }
+        }
+
+        deinit {
+            observation?.invalidate()
         }
     }
 }
@@ -199,17 +309,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 window.titleVisibility = .hidden
                 window.styleMask.insert(.fullSizeContentView)
                 window.titlebarAppearsTransparent = true
-                window.toolbarStyle = .unified
+                window.toolbarStyle = isUITesting ? .unified : .expanded
                 window.isMovableByWindowBackground = true
                 window.isOpaque = false
                 window.backgroundColor = .clear
                 window.titlebarSeparatorStyle = .none
-                window.toolbar?.showsBaselineSeparator = false
-                if let rootView = window.contentView?.superview {
-                    for view in rootView.subviews where NSStringFromClass(type(of: view)).contains("TitlebarContainer") {
-                        for sub in view.subviews { sub.subviews.forEach { if $0 is NSVisualEffectView { $0.isHidden = true } } }
-                    }
-                }
+                window.minSize = NSSize(width: 900, height: 600)
+                window.maxSize = NSSize(width: 2400, height: 1600)
             }
         }
     }

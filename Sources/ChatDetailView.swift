@@ -87,14 +87,7 @@ struct ChatDetailView: View {
                 }
             }
 
-            ComposerView(
-                viewModel: viewModel,
-                text: $viewModel.composerText,
-                draftAttachments: $viewModel.draftAttachments,
-                isSending: viewModel.isSending,
-                onSubmit: viewModel.sendCurrentMessage
-            )
-            .frame(maxWidth: 960)
+            composerRow(maxWidth: 960)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -187,7 +180,7 @@ struct StatusBubbleView: View {
 }
 
 struct LLMSelectorMenu: View {
-    enum Style { case header, inline }
+    enum Style { case header, inline, iconOnly }
     @ObservedObject var viewModel: ChatViewModel
     @ObservedObject var settingsStore: SettingsStore
     var style: Style = .header
@@ -257,12 +250,17 @@ struct LLMSelectorMenu: View {
                 }
             }
         } label: {
-            if style == .inline {
+            switch style {
+            case .inline:
                 InlineLLMSelectorButton(
                     provider: currentProvider,
                     modelIdentifier: currentModelIdentifier
                 )
-            } else {
+                .toolbarTransparentPillChrome()
+            case .iconOnly:
+                ClusterIcon(systemName: "sparkles", isActive: false)
+                    .toolbarTransparentCircleChrome()
+            case .header:
                 LLMSelectorButton(
                     provider: currentProvider,
                     modelIdentifier: currentModelIdentifier
@@ -270,6 +268,8 @@ struct LLMSelectorMenu: View {
             }
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(style == .iconOnly ? .hidden : .visible)
+        .buttonStyle(.plain)
         .fixedSize()
     }
 
@@ -382,15 +382,21 @@ struct ModelSelectorMenuRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(preset.title)
                     .font(AppTheme.headingFont(15, weight: .regular))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text("Version \(preset.versionLabel)")
                     .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Text(preset.subtitle)
                     .font(AppTheme.uiFont(13, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text("Context \(preset.contextWindowLabel)")
                     .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 16)
@@ -415,15 +421,20 @@ private struct CustomModelSelectorMenuRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Custom Model")
                     .font(AppTheme.headingFont(15, weight: .regular))
+                    .lineLimit(1)
                 Text(provider.normalizedModelIdentifier(modelIdentifier))
                     .font(AppTheme.uiFont(13, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text("Version \(provider.versionLabel(for: modelIdentifier))")
                     .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Text("Context \(TokenFormatting.windowLabel(provider.contextWindowTokens(for: modelIdentifier)))")
                     .font(AppTheme.uiFont(12, weight: .regular))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 16)
@@ -463,14 +474,7 @@ struct WelcomeHomeView: View {
                 }
             }
 
-            ComposerView(
-                viewModel: viewModel,
-                text: $text,
-                draftAttachments: $draftAttachments,
-                isSending: isSending,
-                onSubmit: onSubmit
-            )
-            .frame(maxWidth: 980)
+            composerRow(maxWidth: 980)
 
             Spacer()
         }
@@ -488,6 +492,54 @@ struct WelcomeHomeView: View {
         default: period = "Good Night"
         }
         return trimmedName.isEmpty ? "\(period)." : "\(period), \(trimmedName)."
+    }
+
+    private func composerRow(maxWidth: CGFloat) -> some View {
+        ComposerView(
+            viewModel: viewModel,
+            text: $text,
+            draftAttachments: $draftAttachments,
+            isSending: isSending,
+            onSubmit: onSubmit
+        )
+        .frame(maxWidth: maxWidth)
+        .overlay(alignment: .trailing) {
+            if viewModel.composerMode == .chat {
+                TokenContextBadge(
+                    usageFraction: viewModel.tokenUsageFraction,
+                    inputTokenCount: viewModel.inputTokenCount,
+                    outputTokenCount: viewModel.outputTokenCount,
+                    totalTokenCount: viewModel.estimatedTokenCount,
+                    contextTokenLimit: viewModel.contextTokenLimit
+                )
+                .offset(x: 48)
+            }
+        }
+    }
+}
+
+private extension ChatDetailView {
+    func composerRow(maxWidth: CGFloat) -> some View {
+        ComposerView(
+            viewModel: viewModel,
+            text: $viewModel.composerText,
+            draftAttachments: $viewModel.draftAttachments,
+            isSending: viewModel.isSending,
+            onSubmit: viewModel.sendCurrentMessage
+        )
+        .frame(maxWidth: maxWidth)
+        .overlay(alignment: .trailing) {
+            if viewModel.composerMode == .chat {
+                TokenContextBadge(
+                    usageFraction: viewModel.tokenUsageFraction,
+                    inputTokenCount: viewModel.inputTokenCount,
+                    outputTokenCount: viewModel.outputTokenCount,
+                    totalTokenCount: viewModel.estimatedTokenCount,
+                    contextTokenLimit: viewModel.contextTokenLimit
+                )
+                .offset(x: 48)
+            }
+        }
     }
 }
 

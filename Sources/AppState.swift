@@ -59,13 +59,7 @@ struct ConversationListMetadata: Equatable {
 
 enum RemoteImageImport {
     static func normalizedURL(from rawValue: String) -> URL? {
-        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return nil
-        }
-        return url
+        RemoteImageSupport.normalizedHTTPURL(from: rawValue)
     }
 
     static func supportedImageMimeType(fromResponseMimeType mimeType: String?, fallbackURL: URL, data: Data) -> String? {
@@ -283,14 +277,9 @@ final class ChatViewModel: ObservableObject {
                 throw ServiceError.providerMessage("Enter a valid http or https image URL.")
             }
 
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
-                throw ServiceError.providerMessage("Could not download the image from that URL.")
-            }
-
-            if data.count > 20 * 1024 * 1024 {
-                throw ServiceError.providerMessage("Attachment exceeds the 20 MB limit.")
-            }
+            let download = try await RemoteImageSupport.downloadImage(from: url)
+            let data = download.data
+            let httpResponse = download.response
 
             guard let mimeType = RemoteImageImport.supportedImageMimeType(
                 fromResponseMimeType: httpResponse.mimeType,
@@ -379,16 +368,19 @@ final class ChatViewModel: ObservableObject {
             allowsWebSearch: false
         )
 
+        var receivedContent = false
         appState.serviceFactory.invalidate(for: provider)
         let service = appState.serviceFactory.makeService(provider: provider)
         for try await event in service.streamResponse(for: request) {
             switch event {
             case .token(let token):
                 if !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return
+                    receivedContent = true
                 }
             case .finished:
-                return
+                if receivedContent {
+                    return
+                }
             default:
                 continue
             }
@@ -410,15 +402,18 @@ final class ChatViewModel: ObservableObject {
             allowsWebSearch: false
         )
 
+        var receivedContent = false
         let service = appState.serviceFactory.makeService(provider: provider)
         for try await event in service.streamResponse(for: request) {
             switch event {
             case .token(let token):
                 if !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return
+                    receivedContent = true
                 }
             case .finished:
-                return
+                if receivedContent {
+                    return
+                }
             case .started, .status:
                 continue
             }
@@ -563,7 +558,7 @@ final class ChatViewModel: ObservableObject {
 
     var inputTokenCount: Int {
         let draftTokenCount = TokenFormatting.estimatedTokenCount(for: composerText)
-        return (selectedConversation?.persistedInputTokenCount ?? 0) + draftTokenCount
+        return (selectedConversation?.persistedInputTokenCount ?? 0) + draftTokenCount + draftAttachmentTokenCount
     }
 
     var outputTokenCount: Int {
@@ -611,6 +606,12 @@ final class ChatViewModel: ObservableObject {
 
         do {
             let msgAttachments = try await buildMessageAttachments(from: attachments)
+            let currentInputTokenCount = estimatedTokenCount(for: content, attachments: msgAttachments)
+            if currentInputTokenCount > contextTokenLimit {
+                throw ServiceError.providerMessage(
+                    "The message and attachments exceed the selected model's context window. Reduce attachment size or switch models."
+                )
+            }
             _ = try repository.appendMessage(role: .user, content: content, attachments: msgAttachments, to: conversation)
             releaseDraftAttachments(attachments)
             composerText = ""
@@ -706,7 +707,6 @@ final class ChatViewModel: ObservableObject {
         let model = provider.normalizedModelIdentifier(conversation.modelIdentifier)
         if model != conversation.modelIdentifier {
             try repository.updateConversation(conversation, modelIdentifier: model)
-            load()
         }
 
         let capabilities = provider.capabilities(for: model)
@@ -751,13 +751,11 @@ final class ChatViewModel: ObservableObject {
         )
 
         let assistantMessage = try repository.appendMessage(role: .assistant, content: "", to: conversation)
-        load()
 
         let provider = conversation.provider
         let model = provider.normalizedModelIdentifier(conversation.modelIdentifier)
         if model != conversation.modelIdentifier {
             try repository.updateConversation(conversation, modelIdentifier: model)
-            load()
         }
         let capabilities = provider.capabilities(for: model)
         let request = ChatRequest(
@@ -824,7 +822,7 @@ final class ChatViewModel: ObservableObject {
 
         for record in sortedMessages.reversed() {
             let payload = messagePayload(for: record)
-            let payloadTokenCount = TokenFormatting.estimatedTokenCount(for: payload.content)
+            let payloadTokenCount = estimatedTokenCount(for: payload)
             if selectedMessages.isEmpty {
                 selectedMessages.append(payload)
                 usedTokens += payloadTokenCount
@@ -857,6 +855,25 @@ final class ChatViewModel: ObservableObject {
             attachments: decodedAttachments,
             createdAt: record.createdAt
         )
+    }
+
+    private var draftAttachmentTokenCount: Int {
+        draftAttachments.reduce(into: 0) { total, url in
+            let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            total += TokenFormatting.estimatedAttachmentTokenCount(forByteCount: fileSize)
+        }
+    }
+
+    private func estimatedTokenCount(for payload: ChatMessagePayload) -> Int {
+        estimatedTokenCount(for: payload.content, attachments: payload.attachments ?? [])
+    }
+
+    private func estimatedTokenCount(for content: String, attachments: [MessageAttachment]) -> Int {
+        let textTokenCount = TokenFormatting.estimatedTokenCount(for: content)
+        let attachmentTokenCount = attachments.reduce(into: 0) { total, attachment in
+            total += TokenFormatting.estimatedAttachmentTokenCount(forByteCount: attachment.data.count)
+        }
+        return textTokenCount + attachmentTokenCount
     }
 
     private func finishStreaming() {

@@ -744,10 +744,9 @@ private func validateAuthenticationHeaders(_ headers: [String: String], provider
 }
 
 private func downloadImageAttachment(from url: URL) async throws -> MessageAttachment {
-    let (data, response) = try await URLSession.shared.data(from: url)
-    guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-        throw ServiceError.invalidResponse
-    }
+    let download = try await RemoteImageSupport.downloadImage(from: url)
+    let data = download.data
+    let http = download.response
 
     let mimeType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased().split(separator: ";").first.map(String.init)
         ?? inferredImageMimeType(from: url)
