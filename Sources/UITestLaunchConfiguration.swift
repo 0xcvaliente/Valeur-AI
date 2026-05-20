@@ -3,6 +3,7 @@ import Foundation
 enum UITestLaunchConfiguration {
     enum Screen: String {
         case terms
+        case onboarding
         case settings
     }
 

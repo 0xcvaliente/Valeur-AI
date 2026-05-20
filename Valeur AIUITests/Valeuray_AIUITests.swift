@@ -36,6 +36,23 @@ final class Valeur_AIUITests: XCTestCase {
     }
 
     @MainActor
+    func testOnboardingAppearsAfterTermsAndCompletes() throws {
+        let app = launchApp(acceptedTerms: true)
+
+        dismissExternalDialogs()
+        XCTAssertTrue(app.staticTexts["Welcome to Valeur AI"].waitForExistence(timeout: 5))
+
+        app.buttons["onboarding.primaryButton"].click()
+        XCTAssertTrue(app.staticTexts["Bring your own models"].waitForExistence(timeout: 2))
+
+        app.buttons["onboarding.primaryButton"].click()
+        XCTAssertTrue(app.staticTexts["Chat and workspace"].waitForExistence(timeout: 2))
+
+        app.buttons["onboarding.primaryButton"].click()
+        XCTAssertFalse(app.buttons["onboarding.primaryButton"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
     func testSettingsFlowShowsDataPanel() throws {
         let app = launchApp(screen: "settings", settingsCategory: "Data")
 
@@ -60,13 +77,19 @@ final class Valeur_AIUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["All conversations deleted."].waitForExistence(timeout: 2))
     }
 
-    private func launchApp(screen: String, settingsCategory: String? = nil) -> XCUIApplication {
+    private func launchApp(screen: String? = nil, settingsCategory: String? = nil, acceptedTerms: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += ["--ui-testing", "--ui-testing-reset-defaults"]
-        app.launchArguments += ["--ui-testing-screen", screen]
         app.launchEnvironment["XCTestBundlePath"] = Bundle(for: Self.self).bundlePath
         app.launchEnvironment["XCTestConfigurationFilePath"] = "ui-testing"
-        app.launchEnvironment["UI_TEST_SCREEN"] = screen
+        if let screen {
+            app.launchArguments += ["--ui-testing-screen", screen]
+            app.launchEnvironment["UI_TEST_SCREEN"] = screen
+        }
+        if acceptedTerms {
+            app.launchArguments += ["--ui-testing-accepted-terms", "1"]
+            app.launchEnvironment["UI_TEST_ACCEPTED_TERMS"] = "1"
+        }
         if let settingsCategory {
             app.launchArguments += ["--ui-testing-settings-category", settingsCategory]
             app.launchEnvironment["UI_TEST_SETTINGS_CATEGORY"] = settingsCategory

@@ -25,6 +25,7 @@ struct ValeurAIApp: App {
                     defaults.removePersistentDomain(forName: bundleIdentifier)
                 }
                 defaults.removeObject(forKey: "hasAcceptedTerms")
+                defaults.removeObject(forKey: "hasCompletedOnboarding")
             }
             if let index = launchArguments.firstIndex(of: "--ui-testing-accepted-terms"),
                launchArguments.indices.contains(index + 1) {

@@ -1,4 +1,4 @@
-# Valeur AI
+# Valeur AI App Documentation
 
 _Last updated: May 10, 2026_
 
